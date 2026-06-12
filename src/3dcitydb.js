@@ -1,3 +1,5 @@
+import { FocusController } from "./client/focus/FocusController.js";
+
 function envString(name, fallback) {
   return import.meta.env[name] ?? fallback;
 }
@@ -26,7 +28,14 @@ const SATELLITE_IMAGERY_CREDIT = envString(
   "Esri World Imagery",
 );
 const SATELLITE_IMAGERY_MAX_LEVEL = envNumber("VITE_SATELLITE_IMAGERY_MAX_LEVEL", 19);
-const DEFAULT_SELECTED_PART_ID = envString("VITE_DEFAULT_SELECTED_PART_ID", "NYC_DA4");
+const DEFAULT_SELECTED_PART_ID = envString("VITE_DEFAULT_SELECTED_PART_ID", "NYC_DA10");
+const DEFAULT_FOCUS_BOUNDS = {
+  minLon: -73.96126631673134,
+  minLat: 40.70845429139645,
+  maxLon: -73.87090923063519,
+  maxLat: 40.79029679510656,
+};
+const DATASET_FOCUS_RETRY_MS = [0];
 const WEB_MAP_CLIENT_WAIT_MS = envNumber("VITE_WEB_MAP_CLIENT_WAIT_MS", 15000);
 const AUTO_LOAD_ALL_PARTS = envBoolean("VITE_AUTO_LOAD_ALL_PARTS", true);
 const TILESET_MAX_SCREEN_SPACE_ERROR = envNumber(
@@ -35,7 +44,7 @@ const TILESET_MAX_SCREEN_SPACE_ERROR = envNumber(
 );
 const TILESET_RENDER_WAIT_MS = envNumber("VITE_TILESET_RENDER_WAIT_MS", 60000);
 const APPLY_TILE_STYLE = envBoolean("VITE_APPLY_TILE_STYLE", false);
-const STREETS_ENABLED = envBoolean("VITE_STREETS_ENABLED", true);
+const STREETS_ENABLED = envBoolean("VITE_STREETS_ENABLED", false);
 const STREETS_COLOR = envString("VITE_STREETS_COLOR", "#f4f0cf");
 const STREETS_ALPHA = envNumber("VITE_STREETS_ALPHA", 0.88);
 const STREETS_WIDTH = envNumber("VITE_STREETS_WIDTH", 2);
@@ -80,24 +89,27 @@ function requiredElement(selector) {
   return element;
 }
 
-const partsList = requiredElement("#webmapPartsList");
-const selectAllButton = requiredElement("#webmapSelectAll");
-const clearButton = requiredElement("#webmapClear");
-const tilesetUrl = requiredElement("#tilesetUrl");
-const sqlWhere = requiredElement("#sqlWhere");
-const applySqlFilterButton = requiredElement("#applySqlFilter");
-const clearSqlFilterButton = requiredElement("#clearSqlFilter");
-const streetsToggle = requiredElement("#streetsToggle");
-const copyButton = requiredElement("#copyTilesetUrl");
-const loadLayerButton = requiredElement("#loadWebmapLayer");
-const flyToButton = requiredElement("#flyToWebmapLayer");
-const openButton = requiredElement("#openWebMapClient");
-const statusEl = requiredElement("#webmapStatus");
-const webmapFrame = requiredElement("#webmapFrame");
-const loadLayerButtonText = loadLayerButton.textContent;
-const applySqlFilterButtonText = applySqlFilterButton.textContent;
+function optionalElement(selector) {
+  return document.querySelector(selector);
+}
 
-streetsToggle.checked = STREETS_ENABLED;
+const tilesetUrl = optionalElement("#tilesetUrl");
+const sqlWhere = optionalElement("#sqlWhere");
+const applySqlFilterButton = optionalElement("#applySqlFilter");
+const clearSqlFilterButton = optionalElement("#clearSqlFilter");
+const streetsToggle = optionalElement("#streetsToggle");
+const copyButton = optionalElement("#copyTilesetUrl");
+const loadLayerButton = optionalElement("#loadWebmapLayer");
+const flyToButton = optionalElement("#flyToWebmapLayer");
+const openButton = optionalElement("#openWebMapClient");
+const statusEl = optionalElement("#webmapStatus");
+const webmapFrame = requiredElement("#webmapFrame");
+const loadLayerButtonText = loadLayerButton?.textContent || "Cargar DA10";
+const applySqlFilterButtonText = applySqlFilterButton?.textContent || "Aplicar filtro SQL";
+
+if (streetsToggle) {
+  streetsToggle.checked = STREETS_ENABLED;
+}
 
 let partsById = new Map();
 let loadedTileset = null;
@@ -115,23 +127,31 @@ let streetsCameraMoveCleanup = null;
 let streetClickHandler = null;
 let streetClickHandlerCanvas = null;
 let streetsReloadTimer = 0;
+
+const focusController = new FocusController({
+  webMapClientUrl: WEB_MAP_CLIENT_URL,
+  defaultBounds: DEFAULT_FOCUS_BOUNDS,
+  selectedBounds,
+  durationSeconds: 0.9,
+});
 let lastStreetsRequestKey = "";
 
 function selectedPartIds() {
-  return [...partsList.querySelectorAll("input[type='checkbox']:checked")].map(
-    (input) => input.value,
-  );
-}
-
-function partCheckboxes() {
-  return [...partsList.querySelectorAll("input[type='checkbox']")];
+  const selectedPart = partsById.get(DEFAULT_SELECTED_PART_ID);
+  if (partsById.size > 0 && !selectedPart?.imported) return [];
+  return [DEFAULT_SELECTED_PART_ID];
 }
 
 function currentSqlWhere() {
-  return sqlWhere.value.trim();
+  return sqlWhere?.value.trim() || "";
 }
 
 function setStatus(message, isLoading = false) {
+  if (!statusEl) {
+    if (isLoading) console.info(message);
+    return;
+  }
+
   statusEl.textContent = message;
   statusEl.classList.toggle("is-loading", isLoading);
   statusEl.setAttribute("aria-busy", isLoading ? "true" : "false");
@@ -140,20 +160,22 @@ function setStatus(message, isLoading = false) {
 function updateControlState() {
   const hasParts = selectedPartIds().length > 0;
 
-  copyButton.disabled = !hasParts || isLayerLoading;
-  loadLayerButton.disabled = !hasParts || isLayerLoading;
-  applySqlFilterButton.disabled = !hasParts || isLayerLoading;
-  flyToButton.disabled = !hasParts || isLayerLoading;
-  clearSqlFilterButton.disabled = isLayerLoading;
-  selectAllButton.disabled = isLayerLoading;
-  clearButton.disabled = isLayerLoading;
-  sqlWhere.disabled = isLayerLoading;
-  streetsToggle.disabled = isLayerLoading;
+  if (copyButton) copyButton.disabled = !hasParts || isLayerLoading;
+  if (loadLayerButton) loadLayerButton.disabled = !hasParts || isLayerLoading;
+  if (applySqlFilterButton) applySqlFilterButton.disabled = !hasParts || isLayerLoading;
+  if (flyToButton) flyToButton.disabled = !hasParts || isLayerLoading;
+  if (clearSqlFilterButton) clearSqlFilterButton.disabled = isLayerLoading;
+  if (sqlWhere) sqlWhere.disabled = isLayerLoading;
+  if (streetsToggle) streetsToggle.disabled = isLayerLoading;
 
-  loadLayerButton.textContent = isLayerLoading ? "Cargando..." : loadLayerButtonText;
-  applySqlFilterButton.textContent = isLayerLoading
-    ? "Aplicando..."
-    : applySqlFilterButtonText;
+  if (loadLayerButton) {
+    loadLayerButton.textContent = isLayerLoading ? "Cargando..." : loadLayerButtonText;
+  }
+  if (applySqlFilterButton) {
+    applySqlFilterButton.textContent = isLayerLoading
+      ? "Aplicando..."
+      : applySqlFilterButtonText;
+  }
 }
 
 function setLayerLoading(isLoading, message = "") {
@@ -161,7 +183,7 @@ function setLayerLoading(isLoading, message = "") {
   updateControlState();
   if (message) {
     setStatus(message, isLoading);
-  } else if (!isLoading) {
+  } else if (!isLoading && statusEl) {
     statusEl.classList.remove("is-loading");
     statusEl.setAttribute("aria-busy", "false");
   }
@@ -273,13 +295,15 @@ function updateTilesetUrl() {
   const partIds = selectedPartIds();
   const url = selectedTilesetUrl();
 
-  tilesetUrl.value = url || "";
+  if (tilesetUrl) {
+    tilesetUrl.value = url || "";
+  }
   updateControlState();
   if (!isLayerLoading) {
     setStatus(
       partIds.length > 0
-        ? `${partIds.length} parte${partIds.length === 1 ? "" : "s"} seleccionada${partIds.length === 1 ? "" : "s"}; la capa se cargara como 3D Tiles desde 3DCityDB${currentSqlWhere() ? " con filtro SQL" : ""}.`
-        : "Selecciona al menos una zona importada de NYC.",
+        ? `DA10 listo; la capa se cargara como 3D Tiles desde 3DCityDB${currentSqlWhere() ? " con filtro SQL" : ""}.`
+        : "DA10 no figura como importado en 3DCityDB.",
     );
   }
 }
@@ -376,34 +400,17 @@ function streetsUrlForBounds(bounds) {
   return url.toString();
 }
 
-function cameraForBounds(bounds) {
-  const longitude = (bounds.minLon + bounds.maxLon) / 2;
-  const latitude = (bounds.minLat + bounds.maxLat) / 2;
-  const latSpanMeters = (bounds.maxLat - bounds.minLat) * 111320;
-  const lonSpanMeters =
-    (bounds.maxLon - bounds.minLon) *
-    Math.max(111320 * Math.cos((latitude * Math.PI) / 180), 1);
-  const height = Math.max(900, Math.min(Math.max(latSpanMeters, lonSpanMeters) * 1.8, 24000));
-
-  return {
-    longitude,
-    latitude,
-    height,
-    heading: 0,
-    pitch: -55,
-    roll: 0,
-  };
+function focusSelectedDataset(frameWindow) {
+  return focusController.focusDataset(
+    frameWindow,
+    DEFAULT_SELECTED_PART_ID === "NYC_DA10"
+      ? DEFAULT_FOCUS_BOUNDS
+      : selectedBounds() || DEFAULT_FOCUS_BOUNDS,
+  );
 }
 
-function clientUrlWithCamera(camera) {
-  const url = new URL(WEB_MAP_CLIENT_URL, window.location.origin);
-  url.searchParams.set("longitude", camera.longitude.toFixed(8));
-  url.searchParams.set("latitude", camera.latitude.toFixed(8));
-  url.searchParams.set("height", Math.round(camera.height).toString());
-  url.searchParams.set("heading", camera.heading.toString());
-  url.searchParams.set("pitch", camera.pitch.toString());
-  url.searchParams.set("roll", camera.roll.toString());
-  return url;
+function scheduleDatasetFocus(frameWindow, signal) {
+  focusController.scheduleDatasetFocus(frameWindow, signal, DATASET_FOCUS_RETRY_MS);
 }
 
 function waitForWebMapClient() {
@@ -825,8 +832,6 @@ function installStreetClickHandler(frameWindow) {
 }
 
 function activeLayerStatus(streetCount = null, capped = false, labelCount = null) {
-  const partIds = selectedPartIds();
-  const partText = `${partIds.length} parte${partIds.length === 1 ? "" : "s"}`;
   const streetText =
     streetCount === null
       ? ""
@@ -835,13 +840,17 @@ function activeLayerStatus(streetCount = null, capped = false, labelCount = null
     labelCount === null
       ? ""
       : labelCount > 0
-        ? ` Nombres visibles: ${labelCount.toLocaleString("es-UY")}.`
-        : " Acercate para ver nombres de calles.";
-  return `Capa 3D Tiles activa para ${partText}; Cesium cargara las celdas visibles segun la camara.${streetText}${labelText}`;
+      ? ` Nombres visibles: ${labelCount.toLocaleString("es-UY")}.`
+      : " Acercate para ver nombres de calles.";
+  return `Capa 3D Tiles activa para DA10; Cesium cargara las celdas visibles segun la camara.${streetText}${labelText}`;
+}
+
+function shouldLoadStreets() {
+  return streetsToggle ? streetsToggle.checked : STREETS_ENABLED;
 }
 
 async function loadVisibleStreets(frameWindow = webmapFrame.contentWindow) {
-  if (!streetsToggle.checked) {
+  if (!shouldLoadStreets()) {
     removeLoadedStreets(frameWindow);
     return;
   }
@@ -932,7 +941,7 @@ async function loadVisibleStreets(frameWindow = webmapFrame.contentWindow) {
 }
 
 function scheduleStreetReload(frameWindow, { immediate = false } = {}) {
-  if (!streetsToggle.checked || selectedPartIds().length === 0) return;
+  if (!shouldLoadStreets() || selectedPartIds().length === 0) return;
 
   window.clearTimeout(streetsReloadTimer);
   const run = () => loadVisibleStreets(frameWindow);
@@ -1036,7 +1045,7 @@ async function loadSelectedLayerInWebMap() {
   const url = selectedTilesetUrl();
 
   if (partIds.length === 0 || !url) {
-    setStatus("Selecciona al menos una zona importada de NYC.");
+    setStatus("DA10 no figura como importado en 3DCityDB.");
     return;
   }
 
@@ -1073,6 +1082,7 @@ async function loadSelectedLayerInWebMap() {
     if (loadController.signal.aborted || loadId !== activeLoadId) return;
 
     loadedTileset = frameWindow.cesiumViewer.scene.primitives.add(tileset);
+    scheduleDatasetFocus(frameWindow, loadController.signal);
     loadedPartKey = partIds.join(",");
     styleTileset(frameWindow, loadedTileset);
     const initialRenderPromise = waitForTilesetInitialRender(
@@ -1084,6 +1094,8 @@ async function loadSelectedLayerInWebMap() {
     if (loadedTileset.readyPromise) {
       await loadedTileset.readyPromise;
     }
+    scheduleDatasetFocus(frameWindow, loadController.signal);
+    if (loadController.signal.aborted || loadId !== activeLoadId) return;
     setStatus("Descargando y renderizando tiles visibles...", true);
     frameWindow.cesiumViewer.scene.requestRender?.();
     await initialRenderPromise;
@@ -1092,7 +1104,7 @@ async function loadSelectedLayerInWebMap() {
     applySatelliteMode(frameWindow);
     await loadVisibleStreets(frameWindow);
 
-    if (!streetsToggle.checked) {
+    if (!shouldLoadStreets()) {
       setStatus(activeLayerStatus());
     }
   } catch (error) {
@@ -1115,7 +1127,7 @@ async function loadSelectedLayerInWebMap() {
 async function flyToSelectedParts() {
   const bounds = selectedBounds();
   if (!bounds) {
-    setStatus("Selecciona al menos una zona importada de NYC.");
+    setStatus("DA10 no figura como importado en 3DCityDB.");
     return;
   }
 
@@ -1125,24 +1137,11 @@ async function flyToSelectedParts() {
     return;
   }
 
-  const camera = cameraForBounds(bounds);
   const frameWindow = webmapFrame.contentWindow;
-  const Cesium = frameWindow?.Cesium;
-  const cesiumViewer = frameWindow?.cesiumViewer;
 
-  if (Cesium && cesiumViewer?.camera && loadedTileset) {
-    applySatelliteMode(frameWindow);
-    await cesiumViewer.flyTo(loadedTileset, {
-      duration: 0.9,
-      offset: new Cesium.HeadingPitchRange(
-        Cesium.Math.toRadians(camera.heading),
-        Cesium.Math.toRadians(camera.pitch),
-        camera.height,
-      ),
-    });
-  } else {
-    webmapFrame.src = clientUrlWithCamera(camera).toString();
-  }
+  applySatelliteMode(frameWindow);
+  const fallbackUrl = await focusController.flyToTileset(frameWindow, loadedTileset, bounds);
+  if (fallbackUrl) webmapFrame.src = fallbackUrl.toString();
 
   setStatus("Moviendo la camara a la capa de NYC cargada.");
   scheduleStreetReload(frameWindow);
@@ -1158,76 +1157,11 @@ function clearLoadedLayer() {
   removeLoadedStreets(webmapFrame.contentWindow);
 }
 
-function setAllPartsChecked(checked) {
-  const inputs = partCheckboxes();
-  for (const input of inputs) {
-    input.checked = checked && input.dataset.imported === "true";
-  }
-
-  if (!checked) {
-    clearLoadedLayer();
-  }
-
-  updateTilesetUrl();
-  if (checked && selectedPartIds().length > 0) {
-    loadSelectedLayerInWebMap();
-  }
-}
-
-function handlePartSelectionChange(event) {
-  const input = event.target;
-  if (!(input instanceof HTMLInputElement) || input.type !== "checkbox") return;
-  if (input.disabled || input.dataset.imported !== "true") return;
-
-  updateTilesetUrl();
-  if (selectedPartIds().length > 0) {
-    loadSelectedLayerInWebMap();
-  } else {
-    clearLoadedLayer();
-  }
-}
-
-function populateParts(parts) {
-  partsList.replaceChildren(
-    ...parts.map((part) => {
-      const label = document.createElement("label");
-      label.className = "part-check";
-      label.title = part.imported
-        ? `${part.stats.buildings.toLocaleString("es-UY")} edificios`
-        : "Todavia no importada";
-
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.value = part.id;
-      input.dataset.imported = String(part.imported);
-      input.checked = Boolean(part.imported);
-      input.disabled = !part.imported;
-
-      const name = document.createElement("span");
-      name.className = "part-name";
-      name.textContent = part.label;
-
-      label.append(input, name);
-      return label;
-    }),
-  );
-}
-
-function defaultCameraBounds() {
-  return (
-    partsById.get(DEFAULT_SELECTED_PART_ID)?.bounds ||
-    [...partsById.values()].find((part) => part.imported && part.bounds)?.bounds ||
-    selectedBounds()
-  );
-}
-
 function applyInitialCamera() {
   if (initialCameraApplied) return;
-  const bounds = defaultCameraBounds();
-  if (!bounds) return;
-
-  initialCameraApplied = true;
-  webmapFrame.src = clientUrlWithCamera(cameraForBounds(bounds)).toString();
+  if (focusSelectedDataset(webmapFrame.contentWindow)) {
+    initialCameraApplied = true;
+  }
 }
 
 async function loadParts() {
@@ -1238,7 +1172,6 @@ async function loadParts() {
 
   const payload = await response.json();
   partsById = new Map(payload.parts.map((part) => [part.id, part]));
-  populateParts(payload.parts);
   updateTilesetUrl();
   applyInitialCamera();
   if (AUTO_LOAD_ALL_PARTS && selectedPartIds().length > 0) {
@@ -1246,22 +1179,19 @@ async function loadParts() {
   }
 }
 
-partsList.addEventListener("change", handlePartSelectionChange);
-selectAllButton.addEventListener("click", () => setAllPartsChecked(true));
-clearButton.addEventListener("click", () => setAllPartsChecked(false));
-sqlWhere.addEventListener("input", updateTilesetUrl);
+sqlWhere?.addEventListener("input", updateTilesetUrl);
 
-applySqlFilterButton.addEventListener("click", loadSelectedLayerInWebMap);
-clearSqlFilterButton.addEventListener("click", () => {
-  sqlWhere.value = "";
+applySqlFilterButton?.addEventListener("click", loadSelectedLayerInWebMap);
+clearSqlFilterButton?.addEventListener("click", () => {
+  if (sqlWhere) sqlWhere.value = "";
   updateTilesetUrl();
   if (selectedPartIds().length > 0) {
     loadSelectedLayerInWebMap();
   }
 });
 
-streetsToggle.addEventListener("change", async () => {
-  if (!streetsToggle.checked) {
+streetsToggle?.addEventListener("change", async () => {
+  if (!shouldLoadStreets()) {
     removeLoadedStreets(webmapFrame.contentWindow);
     setStatus("Calles NYC ocultas.");
     return;
@@ -1277,12 +1207,12 @@ streetsToggle.addEventListener("change", async () => {
   }
 });
 
-copyButton.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(tilesetUrl.value);
+copyButton?.addEventListener("click", async () => {
+  await navigator.clipboard.writeText(tilesetUrl?.value || selectedTilesetUrl() || "");
   setStatus("URL de 3D Tiles copiada.");
 });
-loadLayerButton.addEventListener("click", loadSelectedLayerInWebMap);
-flyToButton.addEventListener("click", flyToSelectedParts);
+loadLayerButton?.addEventListener("click", loadSelectedLayerInWebMap);
+flyToButton?.addEventListener("click", flyToSelectedParts);
 webmapFrame.addEventListener("load", () => {
   window.setTimeout(() => {
     closeSplashWindow(webmapFrame.contentWindow);
@@ -1292,7 +1222,7 @@ webmapFrame.addEventListener("load", () => {
   }, 1200);
 });
 
-openButton.addEventListener("click", () => {
+openButton?.addEventListener("click", () => {
   window.open(new URL(WEB_MAP_CLIENT_URL, window.location.origin), "_blank");
 });
 

@@ -42,7 +42,7 @@ select {
 
 .webmap-shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 1fr);
   width: 100vw;
   height: 100vh;
   background: #111713;
@@ -442,9 +442,9 @@ button:disabled {
 
   .webmap-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(520px, 68vh) auto;
-    height: auto;
-    min-height: 100vh;
+    grid-template-rows: minmax(0, 1fr);
+    height: 100vh;
+    min-height: 0;
   }
 
   .inspector {
@@ -452,10 +452,4 @@ button:disabled {
     border-left: 0;
   }
 
-  .webmap-panel {
-    border-top: 1px solid rgba(242, 244, 234, 0.12);
-    border-left: 0;
-    height: 100vh;
-    overflow: auto;
-  }
 }

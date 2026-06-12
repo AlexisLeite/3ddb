@@ -16,63 +16,6 @@
         src="/3dcitydb-client/3dwebclient/index.html?splashWindow=url%3D%26showOnStart%3Dfalse"
         title="Cliente de mapa 3DCityDB" allowfullscreen></iframe>
     </section>
-
-    <aside class="webmap-panel" aria-label="Capa local de 3DCityDB">
-      <div>
-        <h1>Nueva York</h1>
-      </div>
-
-      <section class="parts-panel" aria-label="Partes de Nueva York">
-        <div class="parts-header">
-          <span>Partes NYC</span>
-          <div class="parts-actions">
-            <button class="secondary" id="webmapSelectAll" type="button">Todas</button>
-            <button class="secondary" id="webmapClear" type="button">Ninguna</button>
-          </div>
-        </div>
-        <div class="parts-list" id="webmapPartsList"></div>
-      </section>
-
-      <label class="endpoint-field">
-        <span>3D Tiles URL</span>
-        <textarea id="tilesetUrl" readonly rows="3"></textarea>
-      </label>
-
-      <label class="endpoint-field">
-        <span>Filtro SQL WHERE</span>
-        <textarea id="sqlWhere" rows="4" spellcheck="false" placeholder="oc.classname = 'RoofSurface'"></textarea>
-      </label>
-
-      <div class="filter-actions">
-        <button class="secondary full" id="applySqlFilter" type="button">
-          Aplicar filtro SQL
-        </button>
-        <button class="secondary full" id="clearSqlFilter" type="button">
-          Limpiar filtro SQL
-        </button>
-      </div>
-
-      <section class="layer-options" aria-label="Capas auxiliares">
-        <label class="toggle">
-          <span>Calles NYC</span>
-          <input id="streetsToggle" type="checkbox" />
-        </label>
-      </section>
-
-      <div class="controls">
-        <button id="loadWebmapLayer" type="button">Cargar capa seleccionada</button>
-        <button id="flyToWebmapLayer" type="button">Ir a las partes seleccionadas</button>
-        <button id="copyTilesetUrl" type="button">Copiar URL 3D Tiles</button>
-        <button class="secondary full" id="openWebMapClient" type="button">
-          Abrir cliente en pestana
-        </button>
-        <a class="secondary-link" href="/">Renderizador personalizado</a>
-      </div>
-
-      <div class="status static" id="webmapStatus">
-        Cargando zonas importadas de NYC...
-      </div>
-    </aside>
   </main>
 
   <script type="module" src="./src/3dcitydb.js"></script>

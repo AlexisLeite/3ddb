@@ -175,8 +175,8 @@ NYC_PART_COUNT=21
 
 Si quieres usar nombres de capas que no sigan el patron `NYC_DA*`, hay que
 generalizar la configuracion del visor y la normalizacion de partes en
-`vite.config.js`. La base puede contener esos datos, pero el panel actual solo
-lista las partes configuradas.
+`src/server/config/loadServerConfig.ts` y `src/server/domain/parts.ts`. La base
+puede contener esos datos, pero el panel actual solo lista las partes configuradas.
 
 ## Web Viewer
 
