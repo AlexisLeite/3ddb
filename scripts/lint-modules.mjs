@@ -9,9 +9,12 @@ const ignoredDirectories = new Set([
   ".git",
   ".playwright-mcp",
   "coverage",
-  "data",
   "dist",
   "node_modules",
+]);
+
+const rootIgnoredDirectories = new Set([
+  "data",
 ]);
 
 const ignoredFiles = new Set([
@@ -48,13 +51,22 @@ const exportedArrowFunctionPattern =
   /^\s*export\s+const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/gm;
 const exportedTypePattern =
   /^\s*export\s+(?:interface|type)\s+([A-Za-z_$][\w$]*)\b/gm;
+const forbiddenReactHookNames = ["use" + "State", "use" + "Effect"];
+const forbiddenReactHookPattern = new RegExp(
+  `\\b(?:React\\.)?(${forbiddenReactHookNames.join("|")})\\b`,
+  "g",
+);
+
+function shouldIgnoreDirectory(directory, entryName) {
+  return ignoredDirectories.has(entryName) || (directory === ROOT && rootIgnoredDirectories.has(entryName));
+}
 
 async function* walk(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
 
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      if (!ignoredDirectories.has(entry.name)) {
+      if (!shouldIgnoreDirectory(directory, entry.name)) {
         yield* walk(join(directory, entry.name));
       }
       continue;
@@ -74,7 +86,7 @@ async function* walkDirectories(directory) {
   yield { directory, entries };
 
   for (const entry of entries) {
-    if (entry.isDirectory() && !ignoredDirectories.has(entry.name)) {
+    if (entry.isDirectory() && !shouldIgnoreDirectory(directory, entry.name)) {
       yield* walkDirectories(join(directory, entry.name));
     }
   }
@@ -136,12 +148,56 @@ function exportedTypeUnits(filePath, content) {
   return collectMatches(exportedTypePattern, content, "type");
 }
 
+function publicClassMethodUnits(filePath, content) {
+  if (!codeExtensions.has(extname(filePath))) return [];
+  exportedClassPattern.lastIndex = 0;
+  if (!exportedClassPattern.test(content)) {
+    exportedClassPattern.lastIndex = 0;
+    return [];
+  }
+  exportedClassPattern.lastIndex = 0;
+
+  const units = [];
+  let offset = 0;
+  for (const line of content.split(/\r\n|\r|\n/)) {
+    const trimmed = line.trim();
+    if (
+      line.startsWith("  ") &&
+      !line.startsWith("    ") &&
+      !trimmed.startsWith("private ") &&
+      !trimmed.startsWith("protected ") &&
+      !trimmed.startsWith("constructor(")
+    ) {
+      const methodMatch = line.match(
+        /^\s+(?:public\s+)?(?:(?:async|get|set)\s+)?([A-Za-z_$][\w$]*)(?:<[^>{}]+>)?\s*\(/,
+      );
+      if (methodMatch) {
+        units.push({
+          kind: "method",
+          name: methodMatch[1],
+          index: offset + line.indexOf(methodMatch[0].trimStart()),
+        });
+      }
+    }
+    offset += line.length + 1;
+  }
+
+  return units;
+}
+
+function forbiddenReactHookUnits(filePath, content) {
+  if (!codeExtensions.has(extname(filePath))) return [];
+  return collectMatches(forbiddenReactHookPattern, content, "hook");
+}
+
 const oversizedFiles = [];
 const overloadedFiles = [];
 const overloadedTypeFiles = [];
 const mismatchedUnitFiles = [];
 const mixedRuntimeAndTypeFiles = [];
 const uncommentedExportFiles = [];
+const uncommentedPublicMethodFiles = [];
+const forbiddenReactHookFiles = [];
 const crowdedDirectories = [];
 
 for await (const { directory, entries } of walkDirectories(ROOT)) {
@@ -165,6 +221,8 @@ for await (const filePath of walk(ROOT)) {
   const lineCount = countLines(content);
   const units = exportedArchitecturalUnits(filePath, content);
   const typeUnits = exportedTypeUnits(filePath, content);
+  const methodUnits = publicClassMethodUnits(filePath, content);
+  const forbiddenHookUnits = forbiddenReactHookUnits(filePath, content);
 
   if (lineCount > MAX_LINES) {
     oversizedFiles.push({
@@ -202,6 +260,29 @@ for await (const filePath of walk(ROOT)) {
     uncommentedExportFiles.push({
       filePath: relative(ROOT, filePath),
       units: uncommentedUnits.map((unit) => ({
+        ...unit,
+        lineNumber: lineNumberForIndex(content, unit.index),
+      })),
+    });
+  }
+
+  const uncommentedMethods = methodUnits.filter(
+    (unit) => !hasLeadingBlockComment(content, unit.index),
+  );
+  if (uncommentedMethods.length > 0) {
+    uncommentedPublicMethodFiles.push({
+      filePath: relative(ROOT, filePath),
+      units: uncommentedMethods.map((unit) => ({
+        ...unit,
+        lineNumber: lineNumberForIndex(content, unit.index),
+      })),
+    });
+  }
+
+  if (forbiddenHookUnits.length > 0) {
+    forbiddenReactHookFiles.push({
+      filePath: relative(ROOT, filePath),
+      units: forbiddenHookUnits.map((unit) => ({
         ...unit,
         lineNumber: lineNumberForIndex(content, unit.index),
       })),
@@ -286,6 +367,32 @@ if (uncommentedExportFiles.length > 0) {
   process.exitCode = 1;
 }
 
+if (uncommentedPublicMethodFiles.length > 0) {
+  console.error(
+    "Public class methods must have a leading block comment with at least 70 characters.",
+  );
+  for (const file of uncommentedPublicMethodFiles) {
+    const units = file.units
+      .map((unit) => `${unit.name} at line ${unit.lineNumber}`)
+      .join(", ");
+    console.error(`- ${file.filePath}: ${units}`);
+  }
+  process.exitCode = 1;
+}
+
+if (forbiddenReactHookFiles.length > 0) {
+  console.error(
+    "React local state and effect hooks are forbidden. Use MobX state classes and class methods for effects.",
+  );
+  for (const file of forbiddenReactHookFiles) {
+    const units = file.units
+      .map((unit) => `${unit.name} at line ${unit.lineNumber}`)
+      .join(", ");
+    console.error(`- ${file.filePath}: ${units}`);
+  }
+  process.exitCode = 1;
+}
+
 if (crowdedDirectories.length > 0) {
   console.error(`Directories must contain ${MAX_FILES_PER_DIRECTORY} checked files or less.`);
   for (const directory of crowdedDirectories) {
@@ -296,6 +403,6 @@ if (crowdedDirectories.length > 0) {
 
 if (!process.exitCode) {
   console.log(
-    `All checked files are ${MAX_LINES} lines or less, directories contain ${MAX_FILES_PER_DIRECTORY} checked files or less, contain at most one exported class/function/type/interface, keep single exported units in matching files, do not mix exported runtime units with exported types, and use leading block comments of at least 70 characters for exported units.`,
+    `All checked files are ${MAX_LINES} lines or less, directories contain ${MAX_FILES_PER_DIRECTORY} checked files or less, contain at most one exported class/function/type/interface, keep single exported units in matching files, do not mix exported runtime units with exported types, use leading block comments of at least 70 characters for exported units and public methods, and avoid forbidden React state/effect hooks.`,
   );
 }

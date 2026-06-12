@@ -18,6 +18,10 @@ import { tileUriForPart } from "./tileUriForPart.js";
 export class DataTiler {
   constructor(private readonly config: ServerConfig) {}
 
+  /**
+   * Builds the root 3D Tiles tileset document for the imported city parts,
+   * including child tile regions, transforms and b3dm content URIs.
+   */
   buildTileset(parts: CityPart[]): Record<string, unknown> {
     const rootRegion = regionFromParts(parts, this.config);
     if (!rootRegion) {
@@ -52,6 +56,10 @@ export class DataTiler {
     };
   }
 
+  /**
+   * Converts loaded surface data into a b3dm tile, returning a valid empty tile
+   * whenever no renderable surfaces or local frame can be produced.
+   */
   buildTile(surfaceData: SurfaceData): Buffer {
     if (surfaceData.surfaces.length === 0) return emptyB3dm();
 
@@ -62,6 +70,10 @@ export class DataTiler {
     return b3dmFromMesh(mesh, this.config);
   }
 
+  /**
+   * Returns a valid empty b3dm tile payload for callers that need explicit
+   * empty content without passing through surface mesh generation.
+   */
   emptyTile(): Buffer {
     return emptyB3dm();
   }

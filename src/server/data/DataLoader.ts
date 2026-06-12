@@ -59,6 +59,10 @@ export class DataLoader {
     this.validPartIds = new Set(this.partConfigs.map((part) => part.id));
   }
 
+  /**
+   * Converts a comma-separated route parameter into valid, sorted delivery area
+   * identifiers, falling back to the configured default part when it is absent.
+   */
   normalizePartIds(partsParam: string | null): string[] {
     if (!partsParam) return [this.config.nyc.defaultPartId];
 
@@ -69,6 +73,10 @@ export class DataLoader {
     return sortPartIds([...new Set(ids)]);
   }
 
+  /**
+   * Returns city part metadata from memory, disk cache, or the database while
+   * preserving the configured cache lifetime used by the HTTP map endpoints.
+   */
   async getParts(): Promise<CityPart[]> {
     const age = Date.now() - this.partsCacheTime;
     if (this.partsCache && age < this.config.nyc.partsCacheMs) {
@@ -99,6 +107,10 @@ export class DataLoader {
     }
   }
 
+  /**
+   * Rebuilds the imported part metadata from database statistics and bounds,
+   * persists the cache payload, and returns the fresh in-memory part listing.
+   */
   async refreshParts(): Promise<CityPart[]> {
     const [cityStatsResult, partBoundsResult] = await Promise.all([
       this.db.query<CityStatsRow>(cityStatsQuery),
@@ -139,6 +151,10 @@ export class DataLoader {
     return this.partsCache;
   }
 
+  /**
+   * Builds the serializable dataset response containing database metadata,
+   * dataset details, and the city part list consumed by client map requests.
+   */
   partsPayload(parts: CityPart[]): Record<string, unknown> {
     return {
       database: this.databasePayload(),
@@ -154,6 +170,10 @@ export class DataLoader {
     };
   }
 
+  /**
+   * Filters requested delivery areas to the subset currently imported in the
+   * database so downstream loaders only query parts with available geometry.
+   */
   async getImportedParts(requestedPartIds: string[]): Promise<CityPart[]> {
     const parts = await this.getParts();
     const importedPartMap = new Map(
@@ -164,6 +184,10 @@ export class DataLoader {
       .filter((part): part is CityPart => Boolean(part));
   }
 
+  /**
+   * Loads renderable surface polygons for imported parts within the requested
+   * or inferred spatial window, applying configured per-part response limits.
+   */
   async loadSurfaces(partIds: string[], requestedView: SpatialWindow | null): Promise<SurfaceData> {
     const parts = await this.getImportedParts(partIds);
     const view = requestedView || this.spatialWindowFromParts(parts);

@@ -4,11 +4,13 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
+    "jsx": "react-jsx",
     "allowJs": false,
     "noEmit": true,
     "esModuleInterop": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": ["node", "react", "react-dom"]
   },
-  "include": ["vite.config.ts", "src/server/**/*.ts"]
+  "include": ["vite.config.ts", "src/server/**/*.ts", "src/client/**/*.ts", "src/client/**/*.tsx"]
 }

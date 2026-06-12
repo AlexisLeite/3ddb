@@ -30,6 +30,10 @@ export class Server {
     );
   }
 
+  /**
+   * Creates the Vite plugin adapter that installs this server's middleware
+   * routes during development without exposing Vite details to callers.
+   */
   vitePlugin(): Plugin {
     return {
       name: "citydb-api",

@@ -2,4 +2,7 @@ node_modules
 .playwright-mcp
 .env
 .env.local
-/data/
+/data/*
+!/data/gallery/
+!/data/gallery/**
+/dist/

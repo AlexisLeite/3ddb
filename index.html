@@ -4,21 +4,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mapa 3DCityDB</title>
+  <title>Galería virtual NYC</title>
   <link rel="icon" href="data:," />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 
-<body class="webmap-page">
-  <main class="webmap-shell">
-    <section class="webmap-frame-wrap" aria-label="Cliente de mapa 3DCityDB">
-      <iframe id="webmapFrame" class="webmap-frame"
-        src="/3dcitydb-client/3dwebclient/index.html?splashWindow=url%3D%26showOnStart%3Dfalse"
-        title="Cliente de mapa 3DCityDB" allowfullscreen></iframe>
-    </section>
-  </main>
+<body>
+  <div id="root"></div>
 
-  <script type="module" src="./src/3dcitydb.js"></script>
+  <script type="module" src="./src/client/main.tsx"></script>
 </body>
 
 </html>

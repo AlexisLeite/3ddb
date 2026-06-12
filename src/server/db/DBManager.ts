@@ -14,6 +14,10 @@ export class DBManager {
     this.pool = new Pool(config);
   }
 
+  /**
+   * Executes a typed PostgreSQL query through the managed pool so callers do
+   * not need direct access to connection lifecycle details.
+   */
   query<T extends pg.QueryResultRow = pg.QueryResultRow>(
     text: string,
     values?: unknown[],
@@ -21,6 +25,10 @@ export class DBManager {
     return this.pool.query<T>(text, values);
   }
 
+  /**
+   * Closes the managed PostgreSQL pool, allowing shutdown flows to release
+   * database connections cleanly when the server is disposed.
+   */
   close(): Promise<void> {
     return this.pool.end();
   }

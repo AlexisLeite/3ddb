@@ -1,0 +1,107 @@
+[
+  {
+    "nombre": "The Metropolitan Museum of Art",
+    "imagen": "https://commons.wikimedia.org/wiki/Special:FilePath/Metropolitan%20Museum%20of%20Art%20%28The%20Met%29%20-%20Central%20Park%2C%20NYC.jpg",
+    "coordenadas_geograficas": { "latitud": 40.779434, "longitud": -73.963402 },
+    "numero_de_calle": "1000 Fifth Avenue",
+    "resumen_del_lugar": "El Metropolitan Museum of Art, conocido como The Met, es uno de los museos de arte más grandes e importantes del mundo. Está sobre el borde este de Central Park y reúne obras de más de 5.000 años de historia: arte egipcio, pintura europea, arte asiático, armaduras, instrumentos musicales, fotografía y diseño. Es ideal para una visita larga, pero también funciona muy bien como parada turística para ver sus salas más famosas y la arquitectura monumental de su fachada."
+  },
+  {
+    "nombre": "American Museum of Natural History",
+    "imagen": "https://commons.wikimedia.org/wiki/Special:FilePath/Amnh%20exterior1.JPG",
+    "coordenadas_geograficas": { "latitud": 40.781303, "longitud": -73.973988 },
+    "numero_de_calle": "200 Central Park West",
+    "resumen_del_lugar": "El American Museum of Natural History está frente al lado oeste de Central Park y es uno de los museos científicos más conocidos de Nueva York. Sus exhibiciones incluyen esqueletos de dinosaurios, dioramas de animales, meteoritos, minerales, culturas del mundo y el Rose Center for Earth and Space. Es especialmente atractivo para familias, amantes de la ciencia y visitantes que quieren combinar el parque con una experiencia educativa de gran escala."
+  },
+  {
+    "nombre": "Central Park Zoo",
+    "imagen": "https://commons.wikimedia.org/wiki/Special:FilePath/Central%20Park%20Zoo%20area.jpg",
+    "coordenadas_geograficas": { "latitud": 40.767778, "longitud": -73.971833 },
+    "numero_de_calle": "64th Street and Fifth Avenue",
+    "resumen_del_lugar": "El Central Park Zoo es un zoológico compacto ubicado dentro del parque, cerca de la esquina sureste. Aunque no es enorme, ofrece una visita muy accesible con pingüinos, leones marinos, aves, monos y espacios pensados para recorrer en poco tiempo. Es una buena opción si se visita Central Park con niños o si se quiere sumar una actividad concreta sin alejarse demasiado de Midtown y la Quinta Avenida."
+  },
+  {
+    "nombre": "Bethesda Terrace",
+    "imagen": "https://commons.wikimedia.org/wiki/Special:FilePath/Bethesda%20Terrace%2C%20Central%20Park%2C%20New%20York.jpg",
+    "coordenadas_geograficas": { "latitud": 40.774326, "longitud": -73.970882 },
+    "numero_de_calle": "72nd Street Cross Drive",
+    "resumen_del_lugar": "Bethesda Terrace es uno de los espacios arquitectónicos más emblemáticos de Central Park. Conecta visualmente el parque con The Lake y Bethesda Fountain, y suele tener músicos callejeros, fotógrafos y visitantes descansando alrededor. La terraza, las escaleras y la galería decorada con azulejos la convierten en un punto muy fotogénico y en una parada clásica para entender el diseño paisajístico original del parque."
+  },
+  {
+    "nombre": "Strawberry Fields",
+    "imagen": "https://commons.wikimedia.org/wiki/Special:FilePath/John%20Lennon%20Memorial%2C%20Strawberry%20Fields%2C%20Central%20Park%20West%2C%20NYC.jpg",
+    "coordenadas_geograficas": { "latitud": 40.775411, "longitud": -73.974608 },
+    "numero_de_calle": "Central Park West entre 71st y 74th Streets",
+    "resumen_del_lugar": "Strawberry Fields es un jardín memorial dedicado a John Lennon, ubicado cerca del edificio Dakota, donde vivía el músico. Su punto más famoso es el mosaico circular con la palabra 'Imagine', que suele atraer flores, músicos y fans de The Beatles. Es un lugar más contemplativo que monumental, pensado como zona tranquila dentro del parque, y combina historia musical, memoria urbana y paisaje."
+  },
+  {
+    "nombre": "Belvedere Castle",
+    "imagen": "https://commons.wikimedia.org/wiki/Special:FilePath/Belvedere%20Castle.jpg",
+    "coordenadas_geograficas": { "latitud": 40.7794, "longitud": -73.9692 },
+    "numero_de_calle": "Mid-Park at 79th Street",
+    "resumen_del_lugar": "Belvedere Castle es una pequeña construcción de estilo castillo situada sobre Vista Rock, uno de los puntos elevados de Central Park. Fue diseñado como mirador y ofrece vistas hacia Turtle Pond, The Ramble y Great Lawn. Además de su valor escénico, funciona como uno de los lugares más reconocibles del parque por su silueta pintoresca y por la sensación de encontrar una pieza casi teatral en medio del paisaje urbano."
+  },
+  {
+    "nombre": "Solomon R. Guggenheim Museum",
+    "imagen": "https://commons.wikimedia.org/wiki/Special:FilePath/Solomon%20R.%20Guggenheim%20Museum%20-%2001.jpg",
+    "coordenadas_geograficas": { "latitud": 40.78306, "longitud": -73.95889 },
+    "numero_de_calle": "1071 Fifth Avenue",
+    "resumen_del_lugar": "El Guggenheim es famoso tanto por su colección de arte moderno y contemporáneo como por su edificio diseñado por Frank Lloyd Wright. Su rampa espiral interior y su fachada curva lo hacen una de las obras arquitectónicas más distintivas de Nueva York. Está sobre Museum Mile, muy cerca del borde este de Central Park, y es una visita ideal para quienes quieren combinar arte, diseño y arquitectura en una sola parada."
+  },
+  {
+    "nombre": "The Frick Collection",
+    "imagen": "https://commons.wikimedia.org/wiki/Special:FilePath/Frick%20Collection.jpg",
+    "coordenadas_geograficas": { "latitud": 40.7711, "longitud": -73.9672 },
+    "numero_de_calle": "1 East 70th Street",
+    "resumen_del_lugar": "The Frick Collection es un museo de arte instalado en la antigua mansión de Henry Clay Frick, muy cerca de Central Park y la Quinta Avenida. Su colección se centra en pintura europea, escultura, muebles y artes decorativas, con una atmósfera más íntima que la de los grandes museos. Es especialmente interesante para quienes disfrutan los espacios históricos, las colecciones refinadas y una experiencia museística más pausada."
+  },
+  {
+    "nombre": "Conservatory Garden",
+    "imagen": "https://commons.wikimedia.org/wiki/Special:FilePath/Conservatory%20Garden%20Central%20Park.jpg",
+    "coordenadas_geograficas": { "latitud": 40.7933, "longitud": -73.9525 },
+    "numero_de_calle": "Fifth Avenue and 105th Street",
+    "resumen_del_lugar": "Conservatory Garden es el único jardín formal de Central Park y ocupa unas seis acres en la zona noreste. Está dividido en sectores de inspiración francesa, italiana e inglesa, con fuentes, pérgolas, senderos simétricos y plantaciones estacionales. Es mucho más tranquilo que las áreas centrales del parque, por lo que resulta perfecto para caminar, tomar fotos, ver flores en primavera o descansar lejos del movimiento turístico más intenso."
+  },
+  {
+    "nombre": "Cleopatra's Needle",
+    "imagen": "https://commons.wikimedia.org/wiki/Special:FilePath/Cleopatra%27s%20Needle%2C%20New%20York.jpg",
+    "coordenadas_geograficas": { "latitud": 40.77963, "longitud": -73.9654 },
+    "numero_de_calle": "Sin numero; dentro de Central Park, detras del Met",
+    "resumen_del_lugar": "Cleopatra's Needle es un obelisco egipcio antiguo ubicado detrás del Metropolitan Museum of Art. Aunque su apodo menciona a Cleopatra, el monumento es mucho más antiguo y está relacionado con el Egipto faraónico. Es uno de los objetos históricos más sorprendentes del parque: una pieza arqueológica monumental al aire libre, rodeada de senderos y muy fácil de sumar a una visita al Met o a la zona este de Central Park."
+  },
+  {
+    "nombre": "Bow Bridge",
+    "imagen": "https://commons.wikimedia.org/wiki/Special:FilePath/Bow%20Bridge%20in%20Central%20Park%2C%20NYC.jpg",
+    "coordenadas_geograficas": { "latitud": 40.7757, "longitud": -73.9714 },
+    "numero_de_calle": "Sin numero; sobre The Lake en Central Park",
+    "resumen_del_lugar": "Bow Bridge es uno de los puentes más fotografiados de Central Park. Cruza The Lake y conecta zonas muy caminables del parque, con vistas hacia el agua, los árboles y los edificios del fondo. Su estructura de hierro fundido y su perfil elegante lo hacen muy popular para fotos, paseos románticos y recorridos cinematográficos, ya que aparece frecuentemente en películas y series ambientadas en Nueva York."
+  },
+  {
+    "nombre": "Alice in Wonderland Statue",
+    "imagen": "https://commons.wikimedia.org/wiki/Special:FilePath/Alice%20in%20Wonderland%20statue%20in%20Central%20Park.jpg",
+    "coordenadas_geograficas": { "latitud": 40.775, "longitud": -73.9666 },
+    "numero_de_calle": "Sin numero; cerca de Conservatory Water",
+    "resumen_del_lugar": "La estatua de Alice in Wonderland es una de las esculturas más queridas de Central Park, especialmente entre niños. Representa a Alicia y otros personajes de Lewis Carroll en una composición de bronce diseñada para ser observada y también trepada. Está cerca de Conservatory Water, una zona tranquila donde suelen navegar pequeños barcos a control remoto, por lo que la visita combina arte público, juego y paisaje."
+  },
+  {
+    "nombre": "Columbus Circle",
+    "imagen": "https://commons.wikimedia.org/wiki/Special:FilePath/Columbus%20Circle%2C%20NYC%20%28June%2C%202017%29.jpg",
+    "coordenadas_geograficas": { "latitud": 40.76806, "longitud": -73.98194 },
+    "numero_de_calle": "Central Park South, Broadway, Eighth Avenue y Central Park West",
+    "resumen_del_lugar": "Columbus Circle marca la esquina suroeste de Central Park y es uno de los puntos urbanos más reconocibles de Manhattan. Funciona como entrada al parque, cruce de avenidas importantes y zona de tiendas, restaurantes y hoteles. Desde allí se puede caminar hacia Central Park South, entrar al parque, visitar el Time Warner Center/Deutsche Bank Center o usarlo como punto de partida para recorrer Midtown y el Upper West Side."
+  },
+  {
+    "nombre": "The Dakota",
+    "imagen": "https://commons.wikimedia.org/wiki/Special:FilePath/1%20West%2072nd%20Street%20%28The%20Dakota%29%20by%20David%20Shankbone.jpg",
+    "coordenadas_geograficas": { "latitud": 40.776611, "longitud": -73.976083 },
+    "numero_de_calle": "1 West 72nd Street",
+    "resumen_del_lugar": "The Dakota es un edificio residencial histórico ubicado frente a Central Park West, famoso por su arquitectura y por su vínculo con John Lennon, quien vivía allí. Aunque no se visita por dentro, su fachada es una parada habitual para quienes recorren Strawberry Fields y la zona oeste del parque. Es un punto de interés para amantes de la música, la arquitectura neoyorquina y la historia cultural de Manhattan."
+  },
+  {
+    "nombre": "Pulitzer Fountain y Grand Army Plaza",
+    "imagen": "https://commons.wikimedia.org/wiki/Special:FilePath/Pulitzer%20Fountain%20-%20Grand%20Army%20Plaza%20%2851395762548%29.jpg",
+    "coordenadas_geograficas": { "latitud": 40.7644, "longitud": -73.9731 },
+    "numero_de_calle": "Fifth Avenue and 59th Street",
+    "resumen_del_lugar": "Grand Army Plaza está en la esquina sureste de Central Park y funciona como una entrada ceremonial al parque desde la Quinta Avenida. Allí se encuentra la Pulitzer Fountain, junto a la zona del Plaza Hotel y muy cerca de tiendas, hoteles y avenidas emblemáticas. Es un lugar interesante para observar la transición entre el paisaje verde de Central Park y el ambiente elegante y comercial de Midtown Manhattan."
+  }
+]

@@ -10,6 +10,10 @@ export class ResponseCache<T> {
     private readonly ttlMs: number,
   ) {}
 
+  /**
+   * Returns a cached response body when it exists and has not exceeded the
+   * configured time-to-live, removing expired entries before returning.
+   */
   get(key: string): T | null {
     const entry = this.entries.get(key);
     if (!entry) return null;
@@ -20,6 +24,10 @@ export class ResponseCache<T> {
     return entry.body;
   }
 
+  /**
+   * Stores a response body under the provided cache key and evicts the oldest
+   * entries until the configured cache size limit is respected.
+   */
   set(key: string, body: T): void {
     this.entries.set(key, { body, createdAt: Date.now() });
     while (this.entries.size > this.limit) {
