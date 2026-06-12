@@ -2,37 +2,17 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ServerConfig } from "../config/ServerConfig.js";
 import type { DBManager } from "../db/DBManager.js";
-import type { Bounds } from "../domain/Bounds.js";
 import type { CityPart } from "../domain/CityPart.js";
 import { createPartConfigs } from "../domain/createPartConfigs.js";
 import { sortPartIds } from "../domain/sortPartIds.js";
 import type { SpatialWindow } from "../domain/SpatialWindow.js";
 import type { Surface } from "../domain/Surface.js";
 import type { SurfaceData } from "../domain/SurfaceData.js";
+import type { BoundsRow } from "./BoundsRow.js";
+import type { CityStatsRow } from "./CityStatsRow.js";
 import { cityStatsQuery, partBoundsQuery, surfaceQuery } from "./queries.js";
-
-interface CityStatsRow {
-  id: string;
-  features: number;
-}
-
-interface BoundsRow extends Bounds {
-  id: string;
-}
-
-interface SurfaceRow {
-  lineage: string;
-  geometry_id: number;
-  feature_id: number;
-  objectid: string;
-  classname: string;
-  lod: string;
-  property_name: string;
-  geojson: {
-    type: string;
-    coordinates: number[][][];
-  };
-}
+import { spatialWindowFromParts } from "./spatialWindowFromParts.js";
+import type { SurfaceRow } from "./SurfaceRow.js";
 
 /**
  * Loads imported city parts and renderable surface polygons from 3DCityDB while
@@ -40,11 +20,8 @@ interface SurfaceRow {
  */
 export class DataLoader {
   private readonly partConfigs: CityPart[];
-
   private readonly validPartIds: Set<string>;
-
   private partsCache: CityPart[] | null = null;
-
   private partsCacheTime = 0;
 
   constructor(
@@ -190,7 +167,7 @@ export class DataLoader {
    */
   async loadSurfaces(partIds: string[], requestedView: SpatialWindow | null): Promise<SurfaceData> {
     const parts = await this.getImportedParts(partIds);
-    const view = requestedView || this.spatialWindowFromParts(parts);
+    const view = requestedView || spatialWindowFromParts(parts);
 
     if (parts.length === 0 || !view) {
       return {
@@ -249,34 +226,4 @@ export class DataLoader {
     );
   }
 
-  private spatialWindowFromParts(parts: CityPart[]): SpatialWindow | null {
-    const bounds = parts.map((part) => part.bounds).filter((bounds): bounds is Bounds => Boolean(bounds));
-    if (bounds.length === 0) return null;
-
-    const union = bounds.reduce(
-      (acc, item) => ({
-        minLon: Math.min(acc.minLon, item.minLon),
-        minLat: Math.min(acc.minLat, item.minLat),
-        maxLon: Math.max(acc.maxLon, item.maxLon),
-        maxLat: Math.max(acc.maxLat, item.maxLat),
-      }),
-      {
-        minLon: Infinity,
-        minLat: Infinity,
-        maxLon: -Infinity,
-        maxLat: -Infinity,
-      },
-    );
-    const lat = (union.minLat + union.maxLat) / 2;
-    const latSpanMeters = (union.maxLat - union.minLat) * 111320;
-    const lonSpanMeters =
-      (union.maxLon - union.minLon) * Math.max(111320 * Math.cos((lat * Math.PI) / 180), 1);
-
-    return {
-      ...union,
-      lon: (union.minLon + union.maxLon) / 2,
-      lat,
-      radiusMeters: Math.max(latSpanMeters, lonSpanMeters) / 2,
-    };
-  }
 }

@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { basename, extname, join, relative } from "node:path";
 
-const MAX_LINES = 1500;
+const MAX_LINES = 250;
 const MAX_FILES_PER_DIRECTORY = 10;
 const ROOT = process.cwd();
 
@@ -26,8 +26,6 @@ const checkedExtensions = new Set([
   ".html",
   ".js",
   ".json",
-  ".md",
-  ".mjs",
   ".sql",
   ".ts",
   ".tsx",

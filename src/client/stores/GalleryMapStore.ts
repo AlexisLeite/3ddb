@@ -1,6 +1,7 @@
 import { makeAutoObservable, runInAction } from "mobx";
 import { FocusController } from "../focus/FocusController.js";
 import type { PointOfInterest } from "../gallery/PointOfInterest.js";
+import { GalleryCameraController } from "./GalleryCameraController.js";
 
 const webMapClientUrl =
   "/3dcitydb-client/3dwebclient/index.html?splashWindow=url%3D%26showOnStart%3Dfalse";
@@ -12,8 +13,8 @@ const defaultBounds = {
 };
 
 /**
- * Coordinates all Cesium side effects for the gallery, including iframe startup,
- * dataset loading, POI entities, route drawing, camera focus and panorama mode.
+ * Coordinates iframe startup, dataset loading and Cesium entity rendering while
+ * delegating all automatic camera movement to the gallery camera controller.
  */
 export class GalleryMapStore {
   readonly iframeUrl = webMapClientUrl;
@@ -32,11 +33,13 @@ export class GalleryMapStore {
 
   private routeDataSource: any = null;
 
-  private panoramaTimer = 0;
-
-  private panoramaHeading = 0;
-
-  private readonly focus = new FocusController(defaultBounds);
+  private readonly camera = new GalleryCameraController(
+    new FocusController(defaultBounds),
+    () => this.frameWindow(),
+    (active) => {
+      this.isPanoramaActive = active;
+    },
+  );
 
   constructor() {
     makeAutoObservable(this, {}, { autoBind: true });
@@ -62,6 +65,7 @@ export class GalleryMapStore {
     const frameWindow = await this.waitForClient();
     this.applySatelliteMode(frameWindow);
     await this.loadDataset(frameWindow);
+    this.camera.bindInteractionHandlers(frameWindow);
     runInAction(() => {
       this.isReady = true;
     });
@@ -75,8 +79,7 @@ export class GalleryMapStore {
     const frameWindow = await this.waitForClient();
     await this.renderPoints(frameWindow, points);
     await this.renderRoute(frameWindow, points);
-    this.focus.focusBounds(frameWindow, this.focus.boundsForPoints(points));
-    this.startPanorama(points);
+    await this.camera.showGallery(points);
   }
 
   /**
@@ -84,60 +87,23 @@ export class GalleryMapStore {
    * controller for the selected point of interest.
    */
   async focusPoint(point: PointOfInterest): Promise<void> {
-    this.stopPanorama();
-    await this.focus.flyToPoint(this.frameWindow(), point);
+    await this.camera.focusPoint(point);
   }
 
   /**
-   * Starts a timer-driven Cesium camera orbit around the center of all gallery
-   * points using a fixed target and range instead of drifting camera rotation.
+   * Moves to the active tour stop while preserving continuous camera rotation
+   * through the transition and subsequent orbit around the point.
    */
-  startPanorama(points: PointOfInterest[]): void {
-    const frameWindow = this.frameWindow();
-    const Cesium = (frameWindow as any)?.Cesium;
-    const viewer = (frameWindow as any)?.cesiumViewer;
-    if (!Cesium?.Cartesian3 || !Cesium?.HeadingPitchRange || !viewer?.camera || this.panoramaTimer) {
-      return;
-    }
-
-    const bounds = this.focus.boundsForPoints(points);
-    const centerLon = (bounds.minLon + bounds.maxLon) / 2;
-    const centerLat = (bounds.minLat + bounds.maxLat) / 2;
-    const latSpanMeters = (bounds.maxLat - bounds.minLat) * 111320;
-    const lonSpanMeters =
-      (bounds.maxLon - bounds.minLon) *
-      Math.max(111320 * Math.cos((centerLat * Math.PI) / 180), 1);
-    const range = Math.max(1800, Math.max(latSpanMeters, lonSpanMeters) * 2.4);
-    const center = Cesium.Cartesian3.fromDegrees(centerLon, centerLat, 90);
-    const pitch = Cesium.Math.toRadians(-36);
-
-    this.panoramaHeading = 0;
-    this.isPanoramaActive = true;
-    this.panoramaTimer = window.setInterval(() => {
-      this.panoramaHeading += 0.003;
-      viewer.camera.lookAt(
-        center,
-        new Cesium.HeadingPitchRange(this.panoramaHeading, pitch, range),
-      );
-      viewer.scene?.requestRender?.();
-    }, 50);
+  async focusTourPoint(point: PointOfInterest): Promise<void> {
+    await this.camera.focusTourPoint(point);
   }
 
   /**
-   * Stops the active panorama timer and resets the Cesium camera transform so
-   * subsequent manual and programmatic camera moves use the global reference.
+   * Ends the guided tour, reframes all rendered points and resumes the broad
+   * presentation orbit around the complete gallery route.
    */
-  stopPanorama(): void {
-    if (this.panoramaTimer) {
-      window.clearInterval(this.panoramaTimer);
-      this.panoramaTimer = 0;
-    }
-    const Cesium = (this.frameWindow() as any)?.Cesium;
-    const viewer = (this.frameWindow() as any)?.cesiumViewer;
-    if (Cesium?.Matrix4 && viewer?.camera) {
-      viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
-    }
-    this.isPanoramaActive = false;
+  async finishTour(points: PointOfInterest[]): Promise<void> {
+    await this.camera.finishTour(points);
   }
 
   private frameWindow(): Window | null {

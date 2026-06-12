@@ -1,0 +1,73 @@
+.tour-stop {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 100%;
+}
+
+.tour-stop-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.tour-stop-header button {
+  min-width: 142px;
+  min-height: 42px;
+  border: 0;
+  border-radius: 6px;
+  background: #d9e794;
+  color: #111610;
+  cursor: pointer;
+  font-weight: 900;
+  transition:
+    transform 160ms ease,
+    background 160ms ease;
+}
+
+.tour-stop-header button:hover {
+  background: #edf6b8;
+  transform: translateY(-1px);
+}
+
+.poi-carousel {
+  width: 100%;
+  height: 50vh;
+  min-height: 280px;
+  margin: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  background: rgba(244, 241, 232, 0.08);
+}
+
+.poi-carousel img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.poi-tour-data {
+  min-height: auto;
+  overflow: visible;
+  padding-right: 6px;
+}
+
+.poi-tour-data h1,
+.tour-finished h1 {
+  margin: 0 0 10px;
+  color: #fffdf4;
+  font-size: clamp(30px, 3vw, 48px);
+  line-height: 1.02;
+}
+
+.poi-address {
+  margin-bottom: 12px;
+  color: rgba(217, 231, 148, 0.86) !important;
+  font-weight: 800;
+}
+
+.tour-finished {
+  text-align: center;
+}

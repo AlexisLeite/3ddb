@@ -6,6 +6,7 @@ import type { GalleryMapStore } from "./GalleryMapStore.js";
 interface RawGalleryPoint {
   nombre: string;
   imagen: string;
+  imagenes?: string[];
   coordenadas_geograficas: {
     latitud: number;
     longitud: number;
@@ -27,9 +28,15 @@ export class GalleryStore {
 
   isTourStarted = false;
 
+  isTourFinished = false;
+
+  currentImageIndex = 0;
+
   status = "Cargando puntos de interes...";
 
   private readonly routePlanner = new RoutePlanner();
+
+  private carouselTimer = 0;
 
   constructor(private readonly mapStore: GalleryMapStore) {
     makeAutoObservable(this, {}, { autoBind: true });
@@ -41,6 +48,27 @@ export class GalleryStore {
    */
   get selectedPoint(): PointOfInterest | null {
     return this.points.find((point) => point.id === this.selectedPointId) || null;
+  }
+
+  /**
+   * Indicates whether the current active point is the last stop in the tour so
+   * the interface can turn the single action button into a finish command.
+   */
+  get isLastPoint(): boolean {
+    return this.selectedPointIndex >= this.points.length - 1;
+  }
+
+  /**
+   * Returns the selected point image for the carousel, clamping the index so
+   * malformed or changing gallery data cannot point outside the image array.
+   */
+  get currentImageUrl(): string {
+    const images = this.selectedPoint?.imageUrls || [];
+    return images[Math.min(this.currentImageIndex, Math.max(images.length - 1, 0))] || "";
+  }
+
+  private get selectedPointIndex(): number {
+    return this.points.findIndex((point) => point.id === this.selectedPointId);
   }
 
   /**
@@ -57,6 +85,9 @@ export class GalleryStore {
         this.points = points;
         this.selectedPointId = points[0]?.id || "";
         this.isLoading = false;
+        this.isTourStarted = false;
+        this.isTourFinished = false;
+        this.currentImageIndex = 0;
         this.status = `${points.length} lugares listos para visitar.`;
       });
       await this.mapStore.showGallery(points);
@@ -74,6 +105,8 @@ export class GalleryStore {
    */
   selectPoint(pointId: string): void {
     this.selectedPointId = pointId;
+    this.currentImageIndex = 0;
+    this.stopCarousel();
     const point = this.selectedPoint;
     if (!point) return;
     this.status = `Punto seleccionado: ${point.name}.`;
@@ -85,23 +118,76 @@ export class GalleryStore {
    * selected point, defaulting to the first point when needed.
    */
   startTour(): void {
+    if (this.points.length === 0) return;
     this.isTourStarted = true;
+    this.isTourFinished = false;
+    this.currentImageIndex = 0;
     const point = this.selectedPoint || this.points[0];
+    this.selectedPointId = point.id;
     this.status = point ? `Recorrido iniciado en ${point.name}.` : "Recorrido iniciado.";
-    if (point) {
-      void this.mapStore.focusPoint(point);
+    this.restartCarousel(point);
+    void this.mapStore.focusTourPoint(point);
+  }
+
+  /**
+   * Advances to the next tour stop and uses the final click on the last point
+   * to close the guided visit with a stable thank-you state.
+   */
+  nextTourPoint(): void {
+    if (!this.isTourStarted) {
+      this.startTour();
+      return;
     }
+
+    if (this.isLastPoint) {
+      this.finishTour();
+      return;
+    }
+
+    const nextPoint = this.points[this.selectedPointIndex + 1];
+    this.selectedPointId = nextPoint.id;
+    this.currentImageIndex = 0;
+    this.status = `Visitando ${nextPoint.name}.`;
+    this.restartCarousel(nextPoint);
+    void this.mapStore.focusTourPoint(nextPoint);
   }
 
   private normalizePoint(rawPoint: RawGalleryPoint, index: number): PointOfInterest {
+    const imageUrls = [rawPoint.imagen, ...(rawPoint.imagenes || [])].filter(Boolean);
     return {
       id: `poi-${index + 1}`,
       name: rawPoint.nombre,
       imageUrl: rawPoint.imagen,
+      imageUrls,
       latitude: rawPoint.coordenadas_geograficas.latitud,
       longitude: rawPoint.coordenadas_geograficas.longitud,
       address: rawPoint.numero_de_calle,
       summary: rawPoint.resumen_del_lugar,
     };
+  }
+
+  private finishTour(): void {
+    this.stopCarousel();
+    this.isTourStarted = false;
+    this.isTourFinished = true;
+    this.status = "Gracias por recorrer la galeria virtual.";
+    void this.mapStore.finishTour(this.points);
+  }
+
+  private restartCarousel(point: PointOfInterest): void {
+    this.stopCarousel();
+    if (point.imageUrls.length < 2) return;
+
+    this.carouselTimer = window.setInterval(() => {
+      runInAction(() => {
+        this.currentImageIndex = (this.currentImageIndex + 1) % point.imageUrls.length;
+      });
+    }, 4200);
+  }
+
+  private stopCarousel(): void {
+    if (!this.carouselTimer) return;
+    window.clearInterval(this.carouselTimer);
+    this.carouselTimer = 0;
   }
 }

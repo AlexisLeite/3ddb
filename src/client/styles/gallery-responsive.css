@@ -1,0 +1,53 @@
+@media (max-width: 860px) {
+  body {
+    overflow: auto;
+  }
+
+  .gallery-shell {
+    min-height: 100svh;
+    min-height: 100vh;
+  }
+
+  .gallery-panel {
+    left: 14px;
+    right: 14px;
+    top: 14px;
+    width: auto !important;
+    max-height: calc(100svh - 28px);
+  }
+
+  .gallery-panel.is-finished {
+    left: 14px;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .gallery-panel.is-touring {
+    height: calc(100svh - 28px);
+    padding: 16px;
+  }
+
+  .tour-stop {
+    gap: 14px;
+  }
+
+  .tour-stop-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .tour-stop-header button {
+    width: 100%;
+  }
+
+  .poi-carousel {
+    height: 42vh;
+    min-height: 240px;
+  }
+
+  .poi-tour-data h1,
+  .tour-finished h1 {
+    font-size: 30px;
+  }
+}

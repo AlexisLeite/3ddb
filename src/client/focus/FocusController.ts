@@ -1,17 +1,17 @@
 import type { PointOfInterest } from "../gallery/PointOfInterest.js";
+import type { Bounds } from "./Bounds.js";
+import type { CameraView } from "./CameraView.js";
+import { CameraViewController } from "./CameraViewController.js";
 
-interface Bounds {
-  minLon: number;
-  minLat: number;
-  maxLon: number;
-  maxLat: number;
-}
+const defaultFlightDurationSeconds = 1.15;
 
 /**
  * Controls Cesium camera focus and flight behavior for the loaded gallery while
  * keeping camera math isolated from presentational React components and stores.
  */
 export class FocusController {
+  private readonly cameraViews = new CameraViewController();
+
   constructor(private readonly fallbackBounds: Bounds) {}
 
   /**
@@ -53,10 +53,10 @@ export class FocusController {
   }
 
   /**
-   * Moves the Cesium camera to a rectangle that contains the provided bounds,
-   * clearing tracked entities and forcing a render after the view changes.
+   * Animates the Cesium camera to a rectangle containing the provided bounds,
+   * resolving when the camera transition completes or is cancelled.
    */
-  focusBounds(frameWindow: Window | null, bounds: Bounds): boolean {
+  async flyToBounds(frameWindow: Window | null, bounds: Bounds): Promise<boolean> {
     const Cesium = (frameWindow as any)?.Cesium;
     const viewer = (frameWindow as any)?.cesiumViewer;
     if (!Cesium?.Rectangle || !viewer?.camera) return false;
@@ -70,41 +70,113 @@ export class FocusController {
     );
     viewer.trackedEntity = undefined;
     viewer.camera.cancelFlight?.();
-    viewer.camera.setView({ destination });
-    viewer.scene?.requestRender?.();
-    return true;
+    if (typeof viewer.camera.flyTo !== "function") return false;
+    this.cameraViews.preserveWorldCameraTransform(Cesium, viewer);
+
+    return this.flyTo(viewer, { destination });
   }
 
   /**
    * Flies the Cesium camera to a specific point of interest and leaves the
-   * selected coordinates centered with a stable heading, pitch and range.
+   * selected coordinates offset left so the explanatory panel stays clear.
    */
-  async flyToPoint(frameWindow: Window | null, point: PointOfInterest): Promise<boolean> {
+  async flyToPoint(
+    frameWindow: Window | null,
+    point: PointOfInterest,
+    headingRadians = 0,
+    pitchDegrees = -50,
+    rangeMeters = 720,
+  ): Promise<boolean> {
     const Cesium = (frameWindow as any)?.Cesium;
     const viewer = (frameWindow as any)?.cesiumViewer;
     if (!Cesium?.Cartesian3 || !Cesium?.HeadingPitchRange || !viewer?.camera) return false;
 
-    const target = Cesium.Cartesian3.fromDegrees(point.longitude, point.latitude, 48);
-    const offset = new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-48), 850);
+    const cameraView = this.cameraViews.offsetCameraView(
+      Cesium,
+      viewer,
+      point,
+      headingRadians,
+      pitchDegrees,
+      rangeMeters,
+    );
+    if (!cameraView || typeof viewer.camera.flyTo !== "function") return false;
+
     viewer.trackedEntity = undefined;
     viewer.camera.cancelFlight?.();
-    if (Cesium.Matrix4) {
-      viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
-    }
+    this.cameraViews.preserveWorldCameraTransform(Cesium, viewer);
+    return this.flyTo(viewer, {
+      destination: cameraView.destination,
+      orientation: { direction: cameraView.direction, up: cameraView.up },
+    });
+  }
 
-    if (Cesium.BoundingSphere && typeof viewer.camera.flyToBoundingSphere === "function") {
-      await viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(target, 70), {
-        duration: 1.15,
-        offset,
+  /**
+   * Places the camera around a point using a heading, pitch and range while
+   * keeping that point at the gallery focus screen coordinate instead of center.
+   */
+  lookAtPoint(
+    frameWindow: Window | null,
+    point: PointOfInterest,
+    headingRadians: number,
+    pitchDegrees: number,
+    rangeMeters: number,
+  ): boolean {
+    const Cesium = (frameWindow as any)?.Cesium;
+    const viewer = (frameWindow as any)?.cesiumViewer;
+    if (!Cesium?.Cartesian3 || !Cesium?.HeadingPitchRange || !viewer?.camera) return false;
+    return this.cameraViews.lookAtPoint(Cesium, viewer, point, headingRadians, pitchDegrees, rangeMeters);
+  }
+
+  /**
+   * Captures the current Cesium camera pose in world coordinates so custom
+   * animations can start from the exact visible camera state without jumps.
+   */
+  captureCameraView(frameWindow: Window | null): CameraView | null {
+    const Cesium = (frameWindow as any)?.Cesium;
+    const viewer = (frameWindow as any)?.cesiumViewer;
+    return this.cameraViews.captureCameraView(Cesium, viewer);
+  }
+
+  /**
+   * Blends from a captured camera pose toward the offset orbital pose for a
+   * point, letting tour transitions translate and rotate in one animation.
+   */
+  setBlendedPointView(
+    frameWindow: Window | null,
+    startView: CameraView,
+    point: PointOfInterest,
+    headingRadians: number,
+    pitchDegrees: number,
+    rangeMeters: number,
+    progress: number,
+  ): boolean {
+    const Cesium = (frameWindow as any)?.Cesium;
+    const viewer = (frameWindow as any)?.cesiumViewer;
+    if (!Cesium?.Cartesian3 || !viewer?.camera) return false;
+    const targetView = this.cameraViews.offsetCameraView(
+      Cesium,
+      viewer,
+      point,
+      headingRadians,
+      pitchDegrees,
+      rangeMeters,
+    );
+    return targetView
+      ? this.cameraViews.setBlendedPointView(Cesium, viewer, startView, targetView, progress)
+      : false;
+  }
+
+  private flyTo(viewer: any, options: Record<string, unknown>): Promise<boolean> {
+    return new Promise((resolve) => {
+      viewer.camera.flyTo({
+        ...options,
+        duration: defaultFlightDurationSeconds,
+        complete: () => {
+          viewer.scene?.requestRender?.();
+          resolve(true);
+        },
+        cancel: () => resolve(false),
       });
-    } else {
-      viewer.camera.lookAt(target, offset);
-    }
-    viewer.camera.lookAt(target, offset);
-    if (Cesium.Matrix4) {
-      viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
-    }
-    viewer.scene?.requestRender?.();
-    return true;
+    });
   }
 }
