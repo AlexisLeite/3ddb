@@ -28,12 +28,31 @@ const SATELLITE_IMAGERY_CREDIT = envString(
 const SATELLITE_IMAGERY_MAX_LEVEL = envNumber("VITE_SATELLITE_IMAGERY_MAX_LEVEL", 19);
 const DEFAULT_SELECTED_PART_ID = envString("VITE_DEFAULT_SELECTED_PART_ID", "NYC_DA4");
 const WEB_MAP_CLIENT_WAIT_MS = envNumber("VITE_WEB_MAP_CLIENT_WAIT_MS", 15000);
+const AUTO_LOAD_ALL_PARTS = envBoolean("VITE_AUTO_LOAD_ALL_PARTS", true);
 const TILESET_MAX_SCREEN_SPACE_ERROR = envNumber(
   "VITE_TILESET_MAX_SCREEN_SPACE_ERROR",
   2,
 );
 const TILESET_RENDER_WAIT_MS = envNumber("VITE_TILESET_RENDER_WAIT_MS", 60000);
 const APPLY_TILE_STYLE = envBoolean("VITE_APPLY_TILE_STYLE", false);
+const STREETS_ENABLED = envBoolean("VITE_STREETS_ENABLED", true);
+const STREETS_COLOR = envString("VITE_STREETS_COLOR", "#f4f0cf");
+const STREETS_ALPHA = envNumber("VITE_STREETS_ALPHA", 0.88);
+const STREETS_WIDTH = envNumber("VITE_STREETS_WIDTH", 2);
+const STREETS_FETCH_PADDING = envNumber("VITE_STREETS_FETCH_PADDING", 1.15);
+const STREETS_RELOAD_DEBOUNCE_MS = envNumber("VITE_STREETS_RELOAD_DEBOUNCE_MS", 450);
+const STREETS_LABELS_ENABLED = envBoolean("VITE_STREETS_LABELS_ENABLED", true);
+const STREETS_LABEL_LIMIT = envNumber("VITE_STREETS_LABEL_LIMIT", 220);
+const STREETS_LABEL_MAX_CAMERA_HEIGHT = envNumber(
+  "VITE_STREETS_LABEL_MAX_CAMERA_HEIGHT",
+  6000,
+);
+const STREETS_LABEL_MIN_SPACING_METERS = envNumber(
+  "VITE_STREETS_LABEL_MIN_SPACING_METERS",
+  90,
+);
+const STREETS_LABEL_SCALE = envNumber("VITE_STREETS_LABEL_SCALE", 0.55);
+const STREETS_LABEL_COLOR = envString("VITE_STREETS_LABEL_COLOR", "#fff8d8");
 const tileStyleColors = {
   roof: envString("VITE_TILE_COLOR_ROOF", "#e7ff38"),
   wall: envString("VITE_TILE_COLOR_WALL", "#d8ff42"),
@@ -68,6 +87,7 @@ const tilesetUrl = requiredElement("#tilesetUrl");
 const sqlWhere = requiredElement("#sqlWhere");
 const applySqlFilterButton = requiredElement("#applySqlFilter");
 const clearSqlFilterButton = requiredElement("#clearSqlFilter");
+const streetsToggle = requiredElement("#streetsToggle");
 const copyButton = requiredElement("#copyTilesetUrl");
 const loadLayerButton = requiredElement("#loadWebmapLayer");
 const flyToButton = requiredElement("#flyToWebmapLayer");
@@ -77,14 +97,25 @@ const webmapFrame = requiredElement("#webmapFrame");
 const loadLayerButtonText = loadLayerButton.textContent;
 const applySqlFilterButtonText = applySqlFilterButton.textContent;
 
+streetsToggle.checked = STREETS_ENABLED;
+
 let partsById = new Map();
 let loadedTileset = null;
+let loadedStreetsDataSource = null;
+let loadedStreetLabelsDataSource = null;
 let loadedPartKey = "";
 let renderRecoveryScene = null;
 let activeLoadController = null;
+let activeStreetsController = null;
 let activeLoadId = 0;
-let pendingPartSelection = null;
+let activeStreetsLoadId = 0;
 let isLayerLoading = false;
+let initialCameraApplied = false;
+let streetsCameraMoveCleanup = null;
+let streetClickHandler = null;
+let streetClickHandlerCanvas = null;
+let streetsReloadTimer = 0;
+let lastStreetsRequestKey = "";
 
 function selectedPartIds() {
   return [...partsList.querySelectorAll("input[type='checkbox']:checked")].map(
@@ -117,6 +148,7 @@ function updateControlState() {
   selectAllButton.disabled = isLayerLoading;
   clearButton.disabled = isLayerLoading;
   sqlWhere.disabled = isLayerLoading;
+  streetsToggle.disabled = isLayerLoading;
 
   loadLayerButton.textContent = isLayerLoading ? "Cargando..." : loadLayerButtonText;
   applySqlFilterButton.textContent = isLayerLoading
@@ -237,19 +269,6 @@ function waitForTilesetInitialRender(frameWindow, tileset, signal) {
   });
 }
 
-function partInputFromEvent(event) {
-  const target = event.target;
-  if (!(target instanceof Element)) return null;
-
-  if (target instanceof HTMLInputElement && target.type === "checkbox") {
-    return target;
-  }
-
-  return target
-    .closest(".part-check")
-    ?.querySelector("input[type='checkbox']") || null;
-}
-
 function updateTilesetUrl() {
   const partIds = selectedPartIds();
   const url = selectedTilesetUrl();
@@ -291,6 +310,47 @@ function boundsForPartIds(partIds) {
   return Number.isFinite(bounds.minLon) ? bounds : null;
 }
 
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function paddedBounds(bounds, factor) {
+  const lonCenter = (bounds.minLon + bounds.maxLon) / 2;
+  const latCenter = (bounds.minLat + bounds.maxLat) / 2;
+  const lonHalfSpan = Math.max((bounds.maxLon - bounds.minLon) * factor * 0.5, 0.001);
+  const latHalfSpan = Math.max((bounds.maxLat - bounds.minLat) * factor * 0.5, 0.001);
+
+  return {
+    minLon: clampNumber(lonCenter - lonHalfSpan, -180, 180),
+    minLat: clampNumber(latCenter - latHalfSpan, -90, 90),
+    maxLon: clampNumber(lonCenter + lonHalfSpan, -180, 180),
+    maxLat: clampNumber(latCenter + latHalfSpan, -90, 90),
+  };
+}
+
+function intersectBounds(left, right) {
+  const bounds = {
+    minLon: Math.max(left.minLon, right.minLon),
+    minLat: Math.max(left.minLat, right.minLat),
+    maxLon: Math.min(left.maxLon, right.maxLon),
+    maxLat: Math.min(left.maxLat, right.maxLat),
+  };
+
+  return bounds.minLon < bounds.maxLon && bounds.minLat < bounds.maxLat
+    ? bounds
+    : null;
+}
+
+function roundedBounds(bounds, digits = 5) {
+  const round = (value) => Number(value.toFixed(digits));
+  return {
+    minLon: round(bounds.minLon),
+    minLat: round(bounds.minLat),
+    maxLon: round(bounds.maxLon),
+    maxLat: round(bounds.maxLat),
+  };
+}
+
 function tilesetUrlForPartIds(partIds) {
   if (partIds.length === 0) return null;
 
@@ -305,6 +365,15 @@ function tilesetUrlForPartIds(partIds) {
 
 function selectedTilesetUrl() {
   return tilesetUrlForPartIds(selectedPartIds());
+}
+
+function streetsUrlForBounds(bounds) {
+  const url = new URL("/api/citydb/streets", window.location.origin);
+  url.searchParams.set("minLon", bounds.minLon.toString());
+  url.searchParams.set("minLat", bounds.minLat.toString());
+  url.searchParams.set("maxLon", bounds.maxLon.toString());
+  url.searchParams.set("maxLat", bounds.maxLat.toString());
+  return url.toString();
 }
 
 function cameraForBounds(bounds) {
@@ -413,6 +482,7 @@ function installRenderRecovery(frameWindow) {
       loadedTileset = null;
       loadedPartKey = "";
     }
+    removeLoadedStreets(frameWindow);
 
     setLayerLoading(false);
     setStatus(
@@ -438,6 +508,448 @@ function removeLoadedTileset(frameWindow) {
   }
   loadedTileset = null;
   loadedPartKey = "";
+}
+
+function detachLoadedStreets(frameWindow) {
+  const dataSources = frameWindow?.cesiumViewer?.dataSources;
+  if (loadedStreetLabelsDataSource && dataSources) {
+    dataSources.remove(loadedStreetLabelsDataSource, true);
+  }
+  if (loadedStreetsDataSource && dataSources) {
+    dataSources.remove(loadedStreetsDataSource, true);
+  }
+  loadedStreetLabelsDataSource = null;
+  loadedStreetsDataSource = null;
+  lastStreetsRequestKey = "";
+  frameWindow?.cesiumViewer?.scene?.requestRender?.();
+}
+
+function removeLoadedStreets(frameWindow) {
+  activeStreetsController?.abort();
+  activeStreetsController = null;
+  activeStreetsLoadId += 1;
+  window.clearTimeout(streetsReloadTimer);
+  streetsReloadTimer = 0;
+  detachLoadedStreets(frameWindow);
+}
+
+function currentCesiumViewBounds(frameWindow) {
+  const Cesium = frameWindow?.Cesium;
+  const viewer = frameWindow?.cesiumViewer;
+  const rectangle = viewer?.camera?.computeViewRectangle?.(
+    viewer.scene?.globe?.ellipsoid,
+  );
+  if (!Cesium || !rectangle) return null;
+
+  return {
+    minLon: Cesium.Math.toDegrees(rectangle.west),
+    minLat: Cesium.Math.toDegrees(rectangle.south),
+    maxLon: Cesium.Math.toDegrees(rectangle.east),
+    maxLat: Cesium.Math.toDegrees(rectangle.north),
+  };
+}
+
+function streetRequestBounds(frameWindow) {
+  const selected = selectedBounds();
+  const visible = currentCesiumViewBounds(frameWindow);
+  const bounds = visible && selected ? intersectBounds(visible, selected) || selected : visible || selected;
+
+  return bounds ? roundedBounds(paddedBounds(bounds, STREETS_FETCH_PADDING)) : null;
+}
+
+function streetColor(Cesium) {
+  const baseColor =
+    Cesium.Color.fromCssColorString(STREETS_COLOR) || Cesium.Color.WHITE.clone();
+  return baseColor.withAlpha(clampNumber(STREETS_ALPHA, 0, 1));
+}
+
+function propertyValue(properties, name, Cesium) {
+  const value = properties?.[name];
+  if (value?.getValue) {
+    return value.getValue(Cesium?.JulianDate?.now?.());
+  }
+  return value;
+}
+
+function streetRecordFromProperties(properties, Cesium) {
+  return {
+    gid: propertyValue(properties, "gid", Cesium),
+    label: propertyValue(properties, "label", Cesium),
+    completeStreet: propertyValue(properties, "completeStreet", Cesium),
+    streetName: propertyValue(properties, "streetName", Cesium),
+    postType: propertyValue(properties, "postType", Cesium),
+    highwayNumber: propertyValue(properties, "highwayNumber", Cesium),
+    nysStreetId: propertyValue(properties, "nysStreetId", Cesium),
+    fcc: propertyValue(properties, "fcc", Cesium),
+    speed: propertyValue(properties, "speed", Cesium),
+    oneWay: propertyValue(properties, "oneWay", Cesium),
+    leftCounty: propertyValue(properties, "leftCounty", Cesium),
+    rightCounty: propertyValue(properties, "rightCounty", Cesium),
+    status: propertyValue(properties, "status", Cesium),
+  };
+}
+
+function streetDisplayNameFromRecord(street) {
+  const label = street?.label || street?.completeStreet;
+  if (label) return String(label);
+
+  const name = [street?.streetName, street?.postType].filter(Boolean).join(" ");
+  if (name) return name;
+
+  return street?.highwayNumber ? `Route ${street.highwayNumber}` : "";
+}
+
+function streetDisplayName(properties, Cesium) {
+  return streetDisplayNameFromRecord(streetRecordFromProperties(properties, Cesium));
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function streetDescriptionHtml(street) {
+  const rows = [
+    ["Nombre", streetDisplayNameFromRecord(street)],
+    ["ID NYS", street.nysStreetId],
+    ["Tipo", street.fcc],
+    ["Velocidad", street.speed ? `${street.speed} mph` : ""],
+    ["Sentido", street.oneWay],
+    ["Condado", street.leftCounty === street.rightCounty
+      ? street.leftCounty
+      : [street.leftCounty, street.rightCounty].filter(Boolean).join(" / ")],
+    ["Estado", street.status],
+  ].filter(([, value]) => value !== null && value !== undefined && value !== "");
+
+  return `
+    <table class="cesium-infoBox-defaultTable">
+      <tbody>
+        ${rows
+          .map(
+            ([key, value]) =>
+              `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(value)}</td></tr>`,
+          )
+          .join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function styleStreetsDataSource(frameWindow, dataSource) {
+  const Cesium = frameWindow.Cesium;
+  const color = streetColor(Cesium);
+  for (const entity of dataSource.entities.values) {
+    if (!entity.polyline) continue;
+    const street = streetRecordFromProperties(entity.properties, Cesium);
+    const name = streetDisplayNameFromRecord(street);
+    if (name) {
+      entity.name = name;
+      entity.description = new Cesium.ConstantProperty(streetDescriptionHtml(street));
+    }
+    entity.polyline.material = color;
+    entity.polyline.depthFailMaterial = color.withAlpha(Math.min(STREETS_ALPHA + 0.1, 1));
+    entity.polyline.width = STREETS_WIDTH;
+    entity.polyline.clampToGround = true;
+  }
+}
+
+function lineStringsFromGeometry(geometry) {
+  if (geometry?.type === "LineString") {
+    return [geometry.coordinates];
+  }
+  if (geometry?.type === "MultiLineString") {
+    return geometry.coordinates;
+  }
+  return [];
+}
+
+function lonLatDistanceMeters(left, right) {
+  const midLat = ((left[1] + right[1]) / 2) * (Math.PI / 180);
+  const lonMeters = (right[0] - left[0]) * 111320 * Math.cos(midLat);
+  const latMeters = (right[1] - left[1]) * 111320;
+  return Math.hypot(lonMeters, latMeters);
+}
+
+function lineStringLengthMeters(coordinates) {
+  let length = 0;
+  for (let index = 1; index < coordinates.length; index += 1) {
+    length += lonLatDistanceMeters(coordinates[index - 1], coordinates[index]);
+  }
+  return length;
+}
+
+function midpointOnLineString(coordinates) {
+  if (!Array.isArray(coordinates) || coordinates.length === 0) return null;
+  if (coordinates.length === 1) return coordinates[0];
+
+  const totalLength = lineStringLengthMeters(coordinates);
+  if (totalLength <= 0) return coordinates[Math.floor(coordinates.length / 2)];
+
+  let walked = 0;
+  const target = totalLength / 2;
+  for (let index = 1; index < coordinates.length; index += 1) {
+    const start = coordinates[index - 1];
+    const end = coordinates[index];
+    const segmentLength = lonLatDistanceMeters(start, end);
+    if (walked + segmentLength >= target && segmentLength > 0) {
+      const ratio = (target - walked) / segmentLength;
+      return [
+        start[0] + (end[0] - start[0]) * ratio,
+        start[1] + (end[1] - start[1]) * ratio,
+      ];
+    }
+    walked += segmentLength;
+  }
+
+  return coordinates.at(-1);
+}
+
+function labelPositionForGeometry(geometry) {
+  const lineStrings = lineStringsFromGeometry(geometry)
+    .filter((coordinates) => Array.isArray(coordinates) && coordinates.length > 0)
+    .sort((left, right) => lineStringLengthMeters(right) - lineStringLengthMeters(left));
+
+  return lineStrings.length > 0 ? midpointOnLineString(lineStrings[0]) : null;
+}
+
+function shouldShowStreetLabels(frameWindow) {
+  if (!STREETS_LABELS_ENABLED) return false;
+  const cameraHeight =
+    frameWindow?.cesiumViewer?.camera?.positionCartographic?.height ?? Infinity;
+  return cameraHeight <= STREETS_LABEL_MAX_CAMERA_HEIGHT;
+}
+
+async function addStreetLabels(frameWindow, payload) {
+  const Cesium = frameWindow?.Cesium;
+  const viewer = frameWindow?.cesiumViewer;
+  if (!Cesium?.CustomDataSource || !viewer?.dataSources) return 0;
+
+  if (loadedStreetLabelsDataSource) {
+    viewer.dataSources.remove(loadedStreetLabelsDataSource, true);
+    loadedStreetLabelsDataSource = null;
+  }
+
+  if (!shouldShowStreetLabels(frameWindow)) return 0;
+
+  const labelDataSource = new Cesium.CustomDataSource("NYC Street Labels");
+  const labelColor =
+    Cesium.Color.fromCssColorString(STREETS_LABEL_COLOR) || Cesium.Color.WHITE.clone();
+  const cellSize = STREETS_LABEL_MIN_SPACING_METERS / 111320;
+  const usedCells = new Set();
+  const usedNameCells = new Set();
+  let labelCount = 0;
+
+  for (const feature of payload.features || []) {
+    if (labelCount >= STREETS_LABEL_LIMIT) break;
+
+    const name = streetDisplayNameFromRecord(feature.properties);
+    const position = labelPositionForGeometry(feature.geometry);
+    if (!name || !position) continue;
+
+    const cell = `${Math.round(position[0] / cellSize)},${Math.round(position[1] / cellSize)}`;
+    const nameCell = `${name.toLowerCase()}|${cell}`;
+    if (usedCells.has(cell) || usedNameCells.has(nameCell)) continue;
+
+    usedCells.add(cell);
+    usedNameCells.add(nameCell);
+    labelCount += 1;
+
+    labelDataSource.entities.add({
+      id: `street-label-${feature.id}`,
+      name,
+      position: Cesium.Cartesian3.fromDegrees(position[0], position[1], 4),
+      description: new Cesium.ConstantProperty(streetDescriptionHtml(feature.properties)),
+      properties: feature.properties,
+      label: {
+        text: name,
+        font: "600 13px Inter, Segoe UI, sans-serif",
+        fillColor: labelColor,
+        outlineColor: Cesium.Color.BLACK.withAlpha(0.75),
+        outlineWidth: 3,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        scale: STREETS_LABEL_SCALE,
+        showBackground: true,
+        backgroundColor: Cesium.Color.BLACK.withAlpha(0.42),
+        backgroundPadding: new Cesium.Cartesian2(5, 3),
+        horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+        verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+        pixelOffset: new Cesium.Cartesian2(0, -4),
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        heightReference: Cesium.HeightReference?.CLAMP_TO_GROUND,
+      },
+    });
+  }
+
+  if (labelCount > 0) {
+    loadedStreetLabelsDataSource = await viewer.dataSources.add(labelDataSource);
+  }
+  return labelCount;
+}
+
+function pickedStreetEntity(picked) {
+  const entity = picked?.id;
+  if (!entity?.properties) return null;
+  if (entity.polyline || entity.label) return entity;
+  return null;
+}
+
+function installStreetClickHandler(frameWindow) {
+  const Cesium = frameWindow?.Cesium;
+  const viewer = frameWindow?.cesiumViewer;
+  const canvas = viewer?.scene?.canvas;
+  if (!Cesium?.ScreenSpaceEventHandler || !canvas) return;
+  if (streetClickHandlerCanvas === canvas) return;
+
+  streetClickHandler?.destroy?.();
+  streetClickHandler = new Cesium.ScreenSpaceEventHandler(canvas);
+  streetClickHandlerCanvas = canvas;
+  streetClickHandler.setInputAction((movement) => {
+    const entity = pickedStreetEntity(viewer.scene.pick(movement.position));
+    if (!entity) return;
+
+    const street = streetRecordFromProperties(entity.properties, Cesium);
+    const name = streetDisplayNameFromRecord(street);
+    if (!name) return;
+
+    entity.name = name;
+    entity.description = new Cesium.ConstantProperty(streetDescriptionHtml(street));
+    viewer.selectedEntity = entity;
+    setStatus(
+      `Calle: ${name}${street.speed ? ` · ${street.speed} mph` : ""}${street.oneWay ? ` · sentido ${street.oneWay}` : ""}.`,
+    );
+  }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+}
+
+function activeLayerStatus(streetCount = null, capped = false, labelCount = null) {
+  const partIds = selectedPartIds();
+  const partText = `${partIds.length} parte${partIds.length === 1 ? "" : "s"}`;
+  const streetText =
+    streetCount === null
+      ? ""
+      : ` Calles visibles: ${streetCount.toLocaleString("es-UY")}${capped ? "+" : ""}.`;
+  const labelText =
+    labelCount === null
+      ? ""
+      : labelCount > 0
+        ? ` Nombres visibles: ${labelCount.toLocaleString("es-UY")}.`
+        : " Acercate para ver nombres de calles.";
+  return `Capa 3D Tiles activa para ${partText}; Cesium cargara las celdas visibles segun la camara.${streetText}${labelText}`;
+}
+
+async function loadVisibleStreets(frameWindow = webmapFrame.contentWindow) {
+  if (!streetsToggle.checked) {
+    removeLoadedStreets(frameWindow);
+    return;
+  }
+  if (selectedPartIds().length === 0) return;
+
+  const Cesium = frameWindow?.Cesium;
+  const viewer = frameWindow?.cesiumViewer;
+  if (!Cesium?.GeoJsonDataSource || !viewer?.dataSources) return;
+  installStreetClickHandler(frameWindow);
+
+  const bounds = streetRequestBounds(frameWindow);
+  if (!bounds) return;
+
+  const url = streetsUrlForBounds(bounds);
+  if (url === lastStreetsRequestKey && loadedStreetsDataSource) return;
+
+  activeStreetsController?.abort();
+  const loadController = new AbortController();
+  const loadId = activeStreetsLoadId + 1;
+  activeStreetsController = loadController;
+  activeStreetsLoadId = loadId;
+
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      signal: loadController.signal,
+    });
+
+    if (!response.ok) {
+      let message = `No se pudo cargar la capa de calles (${response.status}).`;
+      try {
+        const body = await response.json();
+        if (body?.error) message = body.error;
+      } catch {
+        // Keep the status-based message if the server did not send JSON.
+      }
+      throw new Error(message);
+    }
+
+    const payload = await response.json();
+    if (loadController.signal.aborted || loadId !== activeStreetsLoadId) return;
+
+    const color = streetColor(Cesium);
+    const dataSource = await Cesium.GeoJsonDataSource.load(payload, {
+      clampToGround: true,
+      stroke: color,
+      strokeWidth: STREETS_WIDTH,
+    });
+    if (loadController.signal.aborted || loadId !== activeStreetsLoadId) return;
+
+    dataSource.name = "NYC Streets";
+    styleStreetsDataSource(frameWindow, dataSource);
+    detachLoadedStreets(frameWindow);
+    loadedStreetsDataSource = await viewer.dataSources.add(dataSource);
+    if (loadController.signal.aborted || loadId !== activeStreetsLoadId) {
+      detachLoadedStreets(frameWindow);
+      return;
+    }
+    const labelCount = await addStreetLabels(frameWindow, payload);
+    if (loadController.signal.aborted || loadId !== activeStreetsLoadId) {
+      detachLoadedStreets(frameWindow);
+      return;
+    }
+    lastStreetsRequestKey = url;
+    viewer.scene.requestRender?.();
+
+    if (!isLayerLoading) {
+      const stats = payload.metadata?.stats;
+      setStatus(
+        activeLayerStatus(
+          payload.features?.length || 0,
+          Boolean(stats?.capped),
+          labelCount,
+        ),
+      );
+    }
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    console.error(error);
+    if (!isLayerLoading) {
+      setStatus(error.message);
+    }
+  } finally {
+    if (activeStreetsController === loadController) {
+      activeStreetsController = null;
+    }
+  }
+}
+
+function scheduleStreetReload(frameWindow, { immediate = false } = {}) {
+  if (!streetsToggle.checked || selectedPartIds().length === 0) return;
+
+  window.clearTimeout(streetsReloadTimer);
+  const run = () => loadVisibleStreets(frameWindow);
+  if (immediate) {
+    run();
+    return;
+  }
+  streetsReloadTimer = window.setTimeout(run, STREETS_RELOAD_DEBOUNCE_MS);
+}
+
+function installStreetCameraReload(frameWindow) {
+  const moveEnd = frameWindow?.cesiumViewer?.camera?.moveEnd;
+  if (!moveEnd?.addEventListener) return;
+  streetsCameraMoveCleanup?.();
+  streetsCameraMoveCleanup = addCesiumEventListener(moveEnd, () => {
+    scheduleStreetReload(frameWindow);
+  });
 }
 
 async function createTileset(frameWindow, url) {
@@ -551,8 +1063,10 @@ async function loadSelectedLayerInWebMap() {
 
     applySatelliteMode(frameWindow);
     installRenderRecovery(frameWindow);
+    installStreetCameraReload(frameWindow);
 
     removeLoadedTileset(frameWindow);
+    removeLoadedStreets(frameWindow);
     frameWindow.cesiumViewer.dataSources.removeAll(true);
 
     const tileset = await createTileset(frameWindow, url);
@@ -570,18 +1084,17 @@ async function loadSelectedLayerInWebMap() {
     if (loadedTileset.readyPromise) {
       await loadedTileset.readyPromise;
     }
-    setStatus("Descargando y renderizando tiles iniciales...", true);
-    await frameWindow.cesiumViewer.flyTo(loadedTileset);
-    if (loadController.signal.aborted || loadId !== activeLoadId) return;
-
+    setStatus("Descargando y renderizando tiles visibles...", true);
+    frameWindow.cesiumViewer.scene.requestRender?.();
     await initialRenderPromise;
     if (loadController.signal.aborted || loadId !== activeLoadId) return;
 
     applySatelliteMode(frameWindow);
+    await loadVisibleStreets(frameWindow);
 
-    setStatus(
-      `Capa 3D Tiles cargada para ${partIds.length} parte${partIds.length === 1 ? "" : "s"} de NYC desde 3DCityDB.`,
-    );
+    if (!streetsToggle.checked) {
+      setStatus(activeLayerStatus());
+    }
   } catch (error) {
     if (error.name === "AbortError") {
       return;
@@ -632,6 +1145,7 @@ async function flyToSelectedParts() {
   }
 
   setStatus("Moviendo la camara a la capa de NYC cargada.");
+  scheduleStreetReload(frameWindow);
 }
 
 function clearLoadedLayer() {
@@ -641,36 +1155,16 @@ function clearLoadedLayer() {
   setLayerLoading(false);
 
   removeLoadedTileset(webmapFrame.contentWindow);
-}
-
-function setOnlyPartChecked(input) {
-  for (const checkbox of partCheckboxes()) {
-    checkbox.checked = checkbox === input;
-  }
-}
-
-function handlePartPointerDown(event) {
-  const input = partInputFromEvent(event);
-  pendingPartSelection = input
-    ? {
-      input,
-      additive: event.ctrlKey || event.metaKey,
-    }
-    : null;
+  removeLoadedStreets(webmapFrame.contentWindow);
 }
 
 function setAllPartsChecked(checked) {
   const inputs = partCheckboxes();
   for (const input of inputs) {
-    input.checked = false;
+    input.checked = checked && input.dataset.imported === "true";
   }
 
-  if (checked) {
-    const firstImported = inputs.find((input) => input.dataset.imported === "true");
-    if (firstImported) {
-      firstImported.checked = true;
-    }
-  } else {
+  if (!checked) {
     clearLoadedLayer();
   }
 
@@ -684,14 +1178,6 @@ function handlePartSelectionChange(event) {
   const input = event.target;
   if (!(input instanceof HTMLInputElement) || input.type !== "checkbox") return;
   if (input.disabled || input.dataset.imported !== "true") return;
-
-  const isAdditiveSelection =
-    pendingPartSelection?.input === input && pendingPartSelection.additive;
-  pendingPartSelection = null;
-
-  if (!isAdditiveSelection) {
-    setOnlyPartChecked(input);
-  }
 
   updateTilesetUrl();
   if (selectedPartIds().length > 0) {
@@ -714,7 +1200,7 @@ function populateParts(parts) {
       input.type = "checkbox";
       input.value = part.id;
       input.dataset.imported = String(part.imported);
-      input.checked = part.id === DEFAULT_SELECTED_PART_ID && part.imported;
+      input.checked = Boolean(part.imported);
       input.disabled = !part.imported;
 
       const name = document.createElement("span");
@@ -727,6 +1213,23 @@ function populateParts(parts) {
   );
 }
 
+function defaultCameraBounds() {
+  return (
+    partsById.get(DEFAULT_SELECTED_PART_ID)?.bounds ||
+    [...partsById.values()].find((part) => part.imported && part.bounds)?.bounds ||
+    selectedBounds()
+  );
+}
+
+function applyInitialCamera() {
+  if (initialCameraApplied) return;
+  const bounds = defaultCameraBounds();
+  if (!bounds) return;
+
+  initialCameraApplied = true;
+  webmapFrame.src = clientUrlWithCamera(cameraForBounds(bounds)).toString();
+}
+
 async function loadParts() {
   const response = await fetch("/api/citydb/cities");
   if (!response.ok) {
@@ -737,9 +1240,12 @@ async function loadParts() {
   partsById = new Map(payload.parts.map((part) => [part.id, part]));
   populateParts(payload.parts);
   updateTilesetUrl();
+  applyInitialCamera();
+  if (AUTO_LOAD_ALL_PARTS && selectedPartIds().length > 0) {
+    loadSelectedLayerInWebMap();
+  }
 }
 
-partsList.addEventListener("pointerdown", handlePartPointerDown);
 partsList.addEventListener("change", handlePartSelectionChange);
 selectAllButton.addEventListener("click", () => setAllPartsChecked(true));
 clearButton.addEventListener("click", () => setAllPartsChecked(false));
@@ -754,6 +1260,23 @@ clearSqlFilterButton.addEventListener("click", () => {
   }
 });
 
+streetsToggle.addEventListener("change", async () => {
+  if (!streetsToggle.checked) {
+    removeLoadedStreets(webmapFrame.contentWindow);
+    setStatus("Calles NYC ocultas.");
+    return;
+  }
+
+  try {
+    const frameWindow = await waitForWebMapClient();
+    installStreetCameraReload(frameWindow);
+    await loadVisibleStreets(frameWindow);
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message);
+  }
+});
+
 copyButton.addEventListener("click", async () => {
   await navigator.clipboard.writeText(tilesetUrl.value);
   setStatus("URL de 3D Tiles copiada.");
@@ -764,6 +1287,8 @@ webmapFrame.addEventListener("load", () => {
   window.setTimeout(() => {
     closeSplashWindow(webmapFrame.contentWindow);
     applySatelliteMode(webmapFrame.contentWindow);
+    installStreetCameraReload(webmapFrame.contentWindow);
+    scheduleStreetReload(webmapFrame.contentWindow, { immediate: true });
   }, 1200);
 });
 

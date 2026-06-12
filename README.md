@@ -186,20 +186,25 @@ npm run dev
 ```
 
 Configuration lives in `.env`. Server/API variables use plain names such as
-`CITYDB_HOST`, `MAX_SURFACES_PER_RESPONSE`, and `CITYDB_HEIGHT_MODE`. Browser
-variables use the `VITE_` prefix, for example `VITE_TILE_COLOR_ROOF`,
-`VITE_TILE_ALPHA_ROOF`, and `VITE_SATELLITE_IMAGERY_URL`. Use `.env.example` as
-the template for a fresh environment.
+`CITYDB_HOST`, `MAX_SURFACES_PER_RESPONSE`, `CITYDB_HEIGHT_MODE`, and
+`TILESET_GRID_DIVISIONS`. Browser variables use the `VITE_` prefix, for example
+`VITE_TILE_COLOR_ROOF`, `VITE_TILE_ALPHA_ROOF`, and `VITE_SATELLITE_IMAGERY_URL`.
+Use `.env.example` as the template for a fresh environment.
 
 The Vite dev server exposes:
 
 - `/api/citydb/cities`: lists the NYC delivery areas and import stats.
 - `/api/citydb/surfaces?parts=NYC_DA1,NYC_DA2`: returns renderable LoD2 polygon
   surfaces for the selected parts.
+- `/api/citydb/streets?minLon=-74.02&minLat=40.70&maxLon=-73.95&maxLat=40.78`:
+  returns NYC street centerlines from `city_layers.nyc_streets` as GeoJSON for
+  the requested lon/lat window.
 - `/api/citydb/3dtiles/tileset.json?parts=NYC_DA4`: returns a dynamic 3D Tiles
   tileset backed by the 3DCityDB database.
 - `/api/citydb/3dtiles/tile.b3dm?parts=NYC_DA4`: returns the batched 3D model
-  tile generated from the selected 3DCityDB surfaces.
+  tile generated from the selected 3DCityDB surfaces. The Web Map Client uses
+  tiled URLs with `minLon`, `minLat`, `maxLon`, and `maxLat` so Cesium can
+  request only the visible cells instead of one full delivery area tile.
 
 The 3DCityDB Web Map panel includes an editable `SQL WHERE` field. The condition
 is applied only to the active selected parts and supports these query aliases:
@@ -212,6 +217,30 @@ Example:
 ```sql
 oc.classname = 'RoofSurface'
 ```
+
+## Calles NYC
+
+Las calles se guardan fuera de las tablas normalizadas de 3DCityDB, en
+`city_layers.nyc_streets`. La capa espera geometria `MULTILINESTRING` en
+`EPSG:4326` y usa indice GiST en `geom`.
+
+El visor 3DCityDB carga esta capa como GeoJSON por ventana visible, no como un
+GeoJSON unico de toda la ciudad. El interruptor `Calles NYC` del panel controla
+la capa y la vuelve a consultar cuando se mueve la camara. Al hacer click sobre
+una linea, el panel de Cesium y el estado del visor muestran el nombre y algunos
+atributos de la calle. Cuando la camara esta cerca, tambien se agregan etiquetas
+de nombres limitadas para no saturar la vista.
+
+Variables utiles:
+
+- `MAX_STREETS_PER_RESPONSE`: maximo de segmentos devueltos por request.
+- `STREETS_SIMPLIFY_TOLERANCE_DEGREES`: simplificacion de lineas antes de
+  enviarlas al navegador.
+- `VITE_STREETS_ENABLED`: activa la capa al iniciar.
+- `VITE_STREETS_COLOR`, `VITE_STREETS_ALPHA`, `VITE_STREETS_WIDTH`: estilo de
+  las lineas en Cesium.
+- `VITE_STREETS_LABELS_ENABLED`, `VITE_STREETS_LABEL_LIMIT` y
+  `VITE_STREETS_LABEL_MAX_CAMERA_HEIGHT`: controlan las etiquetas de nombres.
 
 ## Consultas de interes
 

@@ -26,7 +26,7 @@
         <div class="parts-header">
           <span>Partes NYC</span>
           <div class="parts-actions">
-            <button class="secondary" id="webmapSelectAll" type="button">Primera</button>
+            <button class="secondary" id="webmapSelectAll" type="button">Todas</button>
             <button class="secondary" id="webmapClear" type="button">Ninguna</button>
           </div>
         </div>
@@ -51,6 +51,13 @@
           Limpiar filtro SQL
         </button>
       </div>
+
+      <section class="layer-options" aria-label="Capas auxiliares">
+        <label class="toggle">
+          <span>Calles NYC</span>
+          <input id="streetsToggle" type="checkbox" />
+        </label>
+      </section>
 
       <div class="controls">
         <button id="loadWebmapLayer" type="button">Cargar capa seleccionada</button>

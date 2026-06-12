@@ -72,6 +72,8 @@ const NYC_PARTS_CACHE_PATH = envPath(
   "NYC_PARTS_CACHE_PATH",
   join("data", "nycity-parts-cache.json"),
 );
+const NYC_PARTS_REFRESH_ON_START =
+  envString("NYC_PARTS_REFRESH_ON_START", "false").toLowerCase() === "true";
 
 const dbConfig = {
   host: envString("CITYDB_HOST", "127.0.0.1"),
@@ -96,6 +98,9 @@ const MAX_SURFACES_PER_PART = envInteger("MAX_SURFACES_PER_PART", 8000000);
 const MIN_SURFACES_PER_PART = envInteger("MIN_SURFACES_PER_PART", 1500);
 const MIN_QUERY_RADIUS_METERS = envNumber("MIN_QUERY_RADIUS_METERS", 2000);
 const MAX_QUERY_RADIUS_METERS = envNumber("MAX_QUERY_RADIUS_METERS", 800000);
+const TILESET_GRID_DIVISIONS = Math.max(1, envInteger("TILESET_GRID_DIVISIONS", 16));
+const TILESET_ROOT_GEOMETRIC_ERROR = envNumber("TILESET_ROOT_GEOMETRIC_ERROR", 500);
+const TILESET_PART_GEOMETRIC_ERROR = envNumber("TILESET_PART_GEOMETRIC_ERROR", 250);
 
 const nycPartConfigs = Array.from({ length: NYC_PART_COUNT }, (_, index) => {
   const number = index + 1;
@@ -117,6 +122,14 @@ const NYC_PARTS_CACHE_MS = envInteger("NYC_PARTS_CACHE_MS", 60000);
 const geojsonResponseCache = new Map();
 const GEOJSON_RESPONSE_CACHE_LIMIT = envInteger("GEOJSON_RESPONSE_CACHE_LIMIT", 24);
 const GEOJSON_RESPONSE_CACHE_MS = envInteger("GEOJSON_RESPONSE_CACHE_MS", 120000);
+const streetsResponseCache = new Map();
+const STREETS_RESPONSE_CACHE_LIMIT = envInteger("STREETS_RESPONSE_CACHE_LIMIT", 48);
+const STREETS_RESPONSE_CACHE_MS = envInteger("STREETS_RESPONSE_CACHE_MS", 60000);
+const MAX_STREETS_PER_RESPONSE = envInteger("MAX_STREETS_PER_RESPONSE", 25000);
+const STREETS_SIMPLIFY_TOLERANCE_DEGREES = envNumber(
+  "STREETS_SIMPLIFY_TOLERANCE_DEGREES",
+  0.000005,
+);
 const tileResponseCache = new Map();
 const TILE_RESPONSE_CACHE_LIMIT = envInteger("TILE_RESPONSE_CACHE_LIMIT", 12);
 const TILE_RESPONSE_CACHE_MS = envInteger("TILE_RESPONSE_CACHE_MS", 120000);
@@ -159,6 +172,7 @@ const TILESET_VERSION = envString(
       vertexColors: TILE_VERTEX_COLORS,
       edgeOffsetMeters: TILE_EDGE_OFFSET_METERS,
       groundSurfaceOffsetMeters: TILE_GROUND_SURFACE_OFFSET_METERS,
+      gridDivisions: TILESET_GRID_DIVISIONS,
       applyClientStyle: envString("VITE_APPLY_TILE_STYLE", "false"),
     }),
   )}`,
@@ -483,6 +497,59 @@ const statsQuery = `
   ) as stats;
 `;
 
+const streetsQuery = `
+  with query_window as (
+    select ST_MakeEnvelope($1, $2, $3, $4, 4326) as geom
+  ),
+  selected as (
+    select
+      s.gid,
+      s.nysstreeti,
+      s.completest,
+      s.streetname,
+      s.posttype,
+      s.highwaynum,
+      s.label,
+      s.fcc,
+      s.acc,
+      s.speed,
+      s.oneway,
+      s.leftcounty,
+      s.rightcount,
+      s.status,
+      case
+        when $6::float8 > 0 then ST_SimplifyPreserveTopology(s.geom, $6::float8)
+        else s.geom
+      end as geom
+    from city_layers.nyc_streets s
+    join query_window qw
+      on s.geom && qw.geom
+      and ST_Intersects(s.geom, qw.geom)
+    where s.geom is not null
+    order by s.gid
+    limit ($5::int + 1)
+  )
+  select
+    gid,
+    nysstreeti,
+    completest,
+    streetname,
+    posttype,
+    highwaynum,
+    label,
+    fcc,
+    acc,
+    speed,
+    oneway,
+    leftcounty,
+    rightcount,
+    status,
+    ST_AsGeoJSON(geom, 6, 0)::json as geojson
+  from selected
+  where not ST_IsEmpty(geom)
+  order by gid;
+`;
+
 function sendJson(res, statusCode, body) {
   res.statusCode = statusCode;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -545,6 +612,28 @@ function setCachedJson(cacheKey, body) {
   while (geojsonResponseCache.size > GEOJSON_RESPONSE_CACHE_LIMIT) {
     const firstKey = geojsonResponseCache.keys().next().value;
     geojsonResponseCache.delete(firstKey);
+  }
+}
+
+function getCachedStreetsJson(cacheKey) {
+  const entry = streetsResponseCache.get(cacheKey);
+  if (!entry) return null;
+  if (Date.now() - entry.createdAt > STREETS_RESPONSE_CACHE_MS) {
+    streetsResponseCache.delete(cacheKey);
+    return null;
+  }
+  return entry.body;
+}
+
+function setCachedStreetsJson(cacheKey, body) {
+  streetsResponseCache.set(cacheKey, {
+    body,
+    createdAt: Date.now(),
+  });
+
+  while (streetsResponseCache.size > STREETS_RESPONSE_CACHE_LIMIT) {
+    const firstKey = streetsResponseCache.keys().next().value;
+    streetsResponseCache.delete(firstKey);
   }
 }
 
@@ -650,11 +739,53 @@ function numberParam(url, name) {
   return Number.isFinite(value) ? value : null;
 }
 
+function integerParam(url, name) {
+  const value = numberParam(url, name);
+  return value === null ? null : Math.trunc(value);
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function boundedLimit(url, name, fallback, max) {
+  const requestedLimit = integerParam(url, name) ?? fallback;
+  return clamp(requestedLimit, 1, max);
+}
+
 function spatialWindowFromUrl(url) {
+  const bboxParamNames = ["minLon", "minLat", "maxLon", "maxLat"];
+  const hasBboxParams = bboxParamNames.some((name) => url.searchParams.has(name));
+  if (hasBboxParams) {
+    const minLon = numberParam(url, "minLon");
+    const minLat = numberParam(url, "minLat");
+    const maxLon = numberParam(url, "maxLon");
+    const maxLat = numberParam(url, "maxLat");
+
+    if ([minLon, minLat, maxLon, maxLat].some((value) => value === null)) {
+      return null;
+    }
+
+    const west = clamp(Math.min(minLon, maxLon), -180, 180);
+    const south = clamp(Math.min(minLat, maxLat), -90, 90);
+    const east = clamp(Math.max(minLon, maxLon), -180, 180);
+    const north = clamp(Math.max(minLat, maxLat), -90, 90);
+
+    if (west === east || south === north) {
+      return null;
+    }
+
+    return {
+      lon: (west + east) / 2,
+      lat: (south + north) / 2,
+      radiusMeters: 0,
+      minLon: west,
+      minLat: south,
+      maxLon: east,
+      maxLat: north,
+    };
+  }
+
   const lon = numberParam(url, "lon");
   const lat = numberParam(url, "lat");
   const requestedRadius = numberParam(url, "radius");
@@ -724,14 +855,24 @@ async function getNycParts(pool) {
     return nycPartsCache;
   }
 
-  if (existsSync(NYC_PARTS_CACHE_PATH)) {
+  if (!NYC_PARTS_REFRESH_ON_START && existsSync(NYC_PARTS_CACHE_PATH)) {
     const cachedPayload = readJsonFile(NYC_PARTS_CACHE_PATH);
     nycPartsCache = cachedPayload.parts;
     nycPartsCacheTime = Date.now();
     return nycPartsCache;
   }
 
-  return refreshNycParts(pool);
+  try {
+    return await refreshNycParts(pool);
+  } catch (error) {
+    if (existsSync(NYC_PARTS_CACHE_PATH)) {
+      const cachedPayload = readJsonFile(NYC_PARTS_CACHE_PATH);
+      nycPartsCache = cachedPayload.parts;
+      nycPartsCacheTime = Date.now();
+      return nycPartsCache;
+    }
+    throw error;
+  }
 }
 
 async function refreshNycParts(pool) {
@@ -928,6 +1069,73 @@ function basePayload(surfaceData) {
   };
 }
 
+async function getStreetData(pool, view, limit) {
+  const result = await pool.query(streetsQuery, [
+    view.minLon,
+    view.minLat,
+    view.maxLon,
+    view.maxLat,
+    limit,
+    STREETS_SIMPLIFY_TOLERANCE_DEGREES,
+  ]);
+  const capped = result.rows.length > limit;
+  const rows = capped ? result.rows.slice(0, limit) : result.rows;
+
+  return {
+    view,
+    limit,
+    capped,
+    streets: rows.map((row) => ({
+      gid: row.gid,
+      nysStreetId: row.nysstreeti,
+      completeStreet: row.completest,
+      streetName: row.streetname,
+      postType: row.posttype,
+      highwayNumber: row.highwaynum,
+      label: row.label,
+      fcc: row.fcc,
+      access: row.acc,
+      speed: row.speed,
+      oneWay: row.oneway,
+      leftCounty: row.leftcounty,
+      rightCounty: row.rightcount,
+      status: row.status,
+      geojson: row.geojson,
+    })),
+  };
+}
+
+function streetsPayload(streetData) {
+  return {
+    type: "FeatureCollection",
+    name: "NYC Streets",
+    metadata: {
+      source: "NYS Streets",
+      provider: "Local PostGIS",
+      database: {
+        host: dbConfig.host,
+        port: dbConfig.port,
+        name: dbConfig.database,
+        schema: "city_layers",
+        table: "nyc_streets",
+      },
+      crs: "EPSG:4326",
+      view: streetData.view,
+      stats: {
+        streets: streetData.streets.length,
+        capped: streetData.capped,
+        limit: streetData.limit,
+      },
+    },
+    features: streetData.streets.map(({ geojson, ...street }) => ({
+      type: "Feature",
+      id: street.gid,
+      properties: street,
+      geometry: geojson,
+    })),
+  };
+}
+
 function degreesToRadians(value) {
   return (value * Math.PI) / 180;
 }
@@ -1090,11 +1298,54 @@ function localFrameForParts(parts, verticalOffsetMeters = verticalOffsetForParts
   };
 }
 
-function tileUriForPart(part, sqlFilter) {
+function tileBoundsForPart(part) {
+  if (!part.bounds) return [];
+
+  const { bounds } = part;
+  const lonSpan = bounds.maxLon - bounds.minLon;
+  const latSpan = bounds.maxLat - bounds.minLat;
+  if (lonSpan <= 0 || latSpan <= 0) return [];
+
+  const lonStep = lonSpan / TILESET_GRID_DIVISIONS;
+  const latStep = latSpan / TILESET_GRID_DIVISIONS;
+  const tiles = [];
+
+  for (let y = 0; y < TILESET_GRID_DIVISIONS; y += 1) {
+    for (let x = 0; x < TILESET_GRID_DIVISIONS; x += 1) {
+      tiles.push({
+        id: `${part.id}-${x}-${y}`,
+        bounds: {
+          minLon: bounds.minLon + lonStep * x,
+          minLat: bounds.minLat + latStep * y,
+          minZ: bounds.minZ,
+          maxLon:
+            x === TILESET_GRID_DIVISIONS - 1
+              ? bounds.maxLon
+              : bounds.minLon + lonStep * (x + 1),
+          maxLat:
+            y === TILESET_GRID_DIVISIONS - 1
+              ? bounds.maxLat
+              : bounds.minLat + latStep * (y + 1),
+          maxZ: bounds.maxZ,
+        },
+      });
+    }
+  }
+
+  return tiles;
+}
+
+function tileUriForPart(part, sqlFilter, bounds = null) {
   const url = new URL("http://localhost/tile.b3dm");
   url.searchParams.set("parts", part.id);
   url.searchParams.set("heightMode", NYC_HEIGHT_MODE);
   url.searchParams.set("style", TILESET_VERSION);
+  if (bounds) {
+    url.searchParams.set("minLon", bounds.minLon.toString());
+    url.searchParams.set("minLat", bounds.minLat.toString());
+    url.searchParams.set("maxLon", bounds.maxLon.toString());
+    url.searchParams.set("maxLat", bounds.maxLat.toString());
+  }
   if (sqlFilter) {
     url.searchParams.set("where", sqlFilter.sql);
   }
@@ -1119,26 +1370,35 @@ function buildTileset(parts, sqlFilter = null) {
       tilesetVersion,
       gltfUpAxis: "Y",
     },
-    geometricError: 500,
+    geometricError: TILESET_ROOT_GEOMETRIC_ERROR,
     root: {
       boundingVolume: {
         region: rootRegion,
       },
-      geometricError: 500,
+      geometricError: TILESET_ROOT_GEOMETRIC_ERROR,
       refine: "REPLACE",
       children: parts.map((part) => {
         const verticalOffsetMeters = partVerticalOffsetMeters(part);
         const frame = localFrameForParts([part], verticalOffsetMeters);
-        return {
+        const children = tileBoundsForPart(part).map((tile) => ({
           boundingVolume: {
-            region: regionFromBounds(frame.bounds, verticalOffsetMeters),
+            region: regionFromBounds(tile.bounds, verticalOffsetMeters),
           },
           geometricError: 0,
           refine: "REPLACE",
           transform: frame.transform,
           content: {
-            uri: tileUriForPart(part, sqlFilter),
+            uri: tileUriForPart(part, sqlFilter, tile.bounds),
           },
+        }));
+
+        return {
+          boundingVolume: {
+            region: regionFromBounds(frame.bounds, verticalOffsetMeters),
+          },
+          geometricError: TILESET_PART_GEOMETRIC_ERROR,
+          refine: "REPLACE",
+          children,
         };
       }),
     },
@@ -1699,6 +1959,63 @@ function b3dmFromMesh(mesh) {
   return Buffer.concat([header, paddedFeatureTableJson, paddedBatchTableJson, glb]);
 }
 
+function emptyGlb() {
+  const json = {
+    asset: {
+      version: "2.0",
+      generator: "citygml-lod3-viewer empty 3D Tiles cell",
+    },
+    scene: 0,
+    scenes: [{ nodes: [] }],
+  };
+  const jsonChunk = padBuffer(Buffer.from(JSON.stringify(json), "utf8"), 4, 0x20);
+  const byteLength = 12 + 8 + jsonChunk.length;
+  const header = Buffer.alloc(12);
+  header.write("glTF", 0);
+  header.writeUInt32LE(2, 4);
+  header.writeUInt32LE(byteLength, 8);
+
+  const jsonHeader = Buffer.alloc(8);
+  jsonHeader.writeUInt32LE(jsonChunk.length, 0);
+  jsonHeader.writeUInt32LE(0x4e4f534a, 4);
+
+  return Buffer.concat([header, jsonHeader, jsonChunk]);
+}
+
+function emptyB3dm() {
+  const featureTableJson = Buffer.from(JSON.stringify({ BATCH_LENGTH: 0 }), "utf8");
+  const batchTableJson = Buffer.from("{}", "utf8");
+  const headerLength = 28;
+  const paddedFeatureTableJson = padBufferForOffset(
+    featureTableJson,
+    headerLength,
+    8,
+    0x20,
+  );
+  const paddedBatchTableJson = padBufferForOffset(
+    batchTableJson,
+    headerLength + paddedFeatureTableJson.length,
+    8,
+    0x20,
+  );
+  const glb = emptyGlb();
+  const byteLength =
+    headerLength +
+    paddedFeatureTableJson.length +
+    paddedBatchTableJson.length +
+    glb.length;
+  const header = Buffer.alloc(headerLength);
+  header.write("b3dm", 0);
+  header.writeUInt32LE(1, 4);
+  header.writeUInt32LE(byteLength, 8);
+  header.writeUInt32LE(paddedFeatureTableJson.length, 12);
+  header.writeUInt32LE(0, 16);
+  header.writeUInt32LE(paddedBatchTableJson.length, 20);
+  header.writeUInt32LE(0, 24);
+
+  return Buffer.concat([header, paddedFeatureTableJson, paddedBatchTableJson, glb]);
+}
+
 function citydbApiPlugin() {
   const pool = new Pool(dbConfig);
 
@@ -1774,6 +2091,53 @@ function citydbApiPlugin() {
         }
       });
 
+      server.middlewares.use("/api/citydb/streets", async (req, res) => {
+        if (req.method !== "GET") {
+          sendJson(res, 405, { error: "Method not allowed" });
+          return;
+        }
+
+        const url = new URL(req.url || "", "http://localhost");
+        const view = spatialWindowFromUrl(url);
+        if (!view) {
+          sendJson(res, 400, {
+            error:
+              "Street requests require minLon, minLat, maxLon and maxLat, or lon, lat and radius.",
+          });
+          return;
+        }
+
+        const limit = boundedLimit(
+          url,
+          "limit",
+          MAX_STREETS_PER_RESPONSE,
+          MAX_STREETS_PER_RESPONSE,
+        );
+        const cacheKey = `${url.searchParams.toString()}&limit=${limit}`;
+
+        try {
+          const cachedResponse = getCachedStreetsJson(cacheKey);
+          if (cachedResponse) {
+            sendJsonText(res, 200, cachedResponse);
+            return;
+          }
+
+          const streetData = await getStreetData(pool, view, limit);
+          const responseText = JSON.stringify(streetsPayload(streetData));
+          setCachedStreetsJson(cacheKey, responseText);
+          sendJsonText(res, 200, responseText);
+        } catch (error) {
+          if (error?.code === "42P01") {
+            sendJson(res, 404, {
+              error:
+                "Street layer table city_layers.nyc_streets was not found. Import the NYS Streets shapefile first.",
+            });
+            return;
+          }
+          sendApiError(res, error, { includeDatabase: true });
+        }
+      });
+
       server.middlewares.use("/api/citydb/3dtiles/tileset.json", async (req, res) => {
         if (req.method !== "GET") {
           sendJson(res, 405, { error: "Method not allowed" });
@@ -1831,9 +2195,15 @@ function citydbApiPlugin() {
             sqlFilter,
           });
           if (surfaceData.surfaces.length === 0) {
-            sendJson(res, 404, {
-              error: "The selected area returned no renderable LoD2 surfaces",
-            });
+            if (view) {
+              const responseBody = emptyB3dm();
+              setCachedTile(cacheKey, responseBody);
+              sendBinary(res, 200, responseBody, "application/octet-stream");
+            } else {
+              sendJson(res, 404, {
+                error: "The selected area returned no renderable LoD2 surfaces",
+              });
+            }
             return;
           }
 

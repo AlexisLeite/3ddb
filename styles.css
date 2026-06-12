@@ -315,6 +315,12 @@ dd {
   gap: 10px;
 }
 
+.layer-options {
+  display: grid;
+  gap: 8px;
+  padding-top: 2px;
+}
+
 button {
   width: 100%;
   min-height: 44px;
