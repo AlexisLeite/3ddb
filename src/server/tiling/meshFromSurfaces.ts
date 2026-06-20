@@ -182,11 +182,6 @@ export function meshFromSurfaces(surfaces: Surface[], frame: LocalFrame, config:
 
     const batchId = mesh.batches.length;
     const gltfRings = enuRings.map((ring) => ring.map(gltfPointFromEnu));
-    const gltfLineRings = enuRings.map((ring) =>
-      ring.map((point) =>
-        gltfPointFromEnu(new Vector3(point.x, point.y, point.z + config.tiles.edgeOffsetMeters)),
-      ),
-    );
     const points = gltfRings.flat();
     mesh.batches.push({ ...surface, surfaceType });
 
@@ -201,15 +196,22 @@ export function meshFromSurfaces(surfaces: Surface[], frame: LocalFrame, config:
       );
     }
 
-    for (const ring of gltfLineRings) {
-      for (let index = 0; index < ring.length; index += 1) {
-        pushLineSegment(
-          mesh.lineVertices,
-          mesh.lineColors,
-          config.tiles.vertexColors.edge,
-          ring[index],
-          ring[(index + 1) % ring.length],
-        );
+    if (config.tiles.renderEdges) {
+      const gltfLineRings = enuRings.map((ring) =>
+        ring.map((point) =>
+          gltfPointFromEnu(new Vector3(point.x, point.y, point.z + config.tiles.edgeOffsetMeters)),
+        ),
+      );
+      for (const ring of gltfLineRings) {
+        for (let index = 0; index < ring.length; index += 1) {
+          pushLineSegment(
+            mesh.lineVertices,
+            mesh.lineColors,
+            config.tiles.vertexColors.edge,
+            ring[index],
+            ring[(index + 1) % ring.length],
+          );
+        }
       }
     }
   }
@@ -218,18 +220,20 @@ export function meshFromSurfaces(surfaces: Surface[], frame: LocalFrame, config:
     throw new Error("The selected area returned no renderable polygon surfaces.");
   }
 
-  const edgeBatchId = mesh.batches.length;
-  mesh.batches.push({
-    partId: "outline",
-    geometryId: 0,
-    featureId: 0,
-    objectId: "outline",
-    className: "Outline",
-    lod: config.nyc.lod,
-    property: "outline",
-    surfaceType: "edge",
-  });
-  mesh.lineBatchIds = Array(mesh.lineVertices.length / 3).fill(edgeBatchId);
+  if (mesh.lineVertices.length > 0) {
+    const edgeBatchId = mesh.batches.length;
+    mesh.batches.push({
+      partId: "outline",
+      geometryId: 0,
+      featureId: 0,
+      objectId: "outline",
+      className: "Outline",
+      lod: config.nyc.lod,
+      property: "outline",
+      surfaceType: "edge",
+    });
+    mesh.lineBatchIds = Array(mesh.lineVertices.length / 3).fill(edgeBatchId);
+  }
   mesh.vertexCount = mesh.vertices.length / 3;
   mesh.lineVertexCount = mesh.lineVertices.length / 3;
   return mesh;

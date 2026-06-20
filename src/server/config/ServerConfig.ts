@@ -41,6 +41,7 @@ export interface ServerConfig {
     responseCacheMs: number;
     baseColorFactor: number[];
     vertexColors: Record<string, number[]>;
+    renderEdges: boolean;
     edgeOffsetMeters: number;
     groundSurfaceOffsetMeters: number;
     version: string;

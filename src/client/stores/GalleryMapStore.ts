@@ -1,4 +1,5 @@
 import { makeAutoObservable, runInAction } from "mobx";
+import { CesiumPerformanceSettings } from "./CesiumPerformanceSettings.js";
 import { FocusController } from "../focus/FocusController.js";
 import type { PointOfInterest } from "../gallery/PointOfInterest.js";
 import { GalleryCameraController } from "./GalleryCameraController.js";
@@ -37,7 +38,9 @@ export class GalleryMapStore {
     new FocusController(defaultBounds),
     () => this.frameWindow(),
     (active) => {
-      this.isPanoramaActive = active;
+      runInAction(() => {
+        this.isPanoramaActive = active;
+      });
     },
   );
 
@@ -139,6 +142,7 @@ export class GalleryMapStore {
     viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#050706");
     viewer.scene.skyBox && (viewer.scene.skyBox.show = true);
     viewer.scene.skyAtmosphere && (viewer.scene.skyAtmosphere.show = true);
+    CesiumPerformanceSettings.applyToViewer(frameWindow);
     viewer.scene.requestRender?.();
   }
 
@@ -148,10 +152,11 @@ export class GalleryMapStore {
     const Cesium = (frameWindow as any).Cesium;
     const viewer = (frameWindow as any).cesiumViewer;
     const url = "/api/citydb/3dtiles/tileset.json?parts=NYC_DA10";
+    const options = CesiumPerformanceSettings.tilesetOptions();
     const tileset =
       typeof Cesium.Cesium3DTileset.fromUrl === "function"
-        ? await Cesium.Cesium3DTileset.fromUrl(url, { maximumScreenSpaceError: 2 })
-        : new Cesium.Cesium3DTileset({ url, maximumScreenSpaceError: 2 });
+        ? await Cesium.Cesium3DTileset.fromUrl(url, options)
+        : new Cesium.Cesium3DTileset({ url, ...options });
 
     this.tileset = viewer.scene.primitives.add(tileset);
     if (this.tileset.readyPromise) await this.tileset.readyPromise;

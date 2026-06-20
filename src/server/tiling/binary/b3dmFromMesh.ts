@@ -3,6 +3,13 @@ import type { Mesh } from "../types/Mesh.js";
 import type { MeshBatch } from "../types/MeshBatch.js";
 
 function vectorBounds(values: number[], itemSize: number): { min: number[]; max: number[] } {
+  if (values.length === 0) {
+    return {
+      min: Array.from({ length: itemSize }, () => 0),
+      max: Array.from({ length: itemSize }, () => 0),
+    };
+  }
+
   const min = Array.from({ length: itemSize }, () => Infinity);
   const max = Array.from({ length: itemSize }, () => -Infinity);
 
@@ -62,6 +69,7 @@ function glbFromMesh(mesh: Mesh, config: ServerConfig): Buffer {
   ]);
   const positionBounds = vectorBounds(mesh.vertices, 3);
   const linePositionBounds = vectorBounds(mesh.lineVertices, 3);
+  const hasLines = mesh.lineVertexCount > 0;
 
   const json = {
     asset: {
@@ -84,15 +92,17 @@ function glbFromMesh(mesh: Mesh, config: ServerConfig): Buffer {
             material: 0,
             mode: 4,
           },
-          {
-            attributes: {
-              POSITION: 4,
-              COLOR_0: 5,
-              _BATCHID: 6,
-            },
-            material: 1,
-            mode: 1,
-          },
+          ...(hasLines
+            ? [{
+                attributes: {
+                  POSITION: 4,
+                  COLOR_0: 5,
+                  _BATCHID: 6,
+                },
+                material: 1,
+                mode: 1,
+              }]
+            : []),
         ],
       },
     ],
@@ -120,19 +130,13 @@ function glbFromMesh(mesh: Mesh, config: ServerConfig): Buffer {
       { buffer: 0, byteOffset: normalOffset, byteLength: normalBuffer.length, target: 34962 },
       { buffer: 0, byteOffset: colorOffset, byteLength: colorBuffer.length, target: 34962 },
       { buffer: 0, byteOffset: batchIdOffset, byteLength: batchIdBuffer.length, target: 34962 },
-      {
-        buffer: 0,
-        byteOffset: linePositionOffset,
-        byteLength: linePositionBuffer.length,
-        target: 34962,
-      },
-      { buffer: 0, byteOffset: lineColorOffset, byteLength: lineColorBuffer.length, target: 34962 },
-      {
-        buffer: 0,
-        byteOffset: lineBatchIdOffset,
-        byteLength: lineBatchIdBuffer.length,
-        target: 34962,
-      },
+      ...(hasLines
+        ? [
+            { buffer: 0, byteOffset: linePositionOffset, byteLength: linePositionBuffer.length, target: 34962 },
+            { buffer: 0, byteOffset: lineColorOffset, byteLength: lineColorBuffer.length, target: 34962 },
+            { buffer: 0, byteOffset: lineBatchIdOffset, byteLength: lineBatchIdBuffer.length, target: 34962 },
+          ]
+        : []),
     ],
     accessors: [
       {
@@ -147,29 +151,13 @@ function glbFromMesh(mesh: Mesh, config: ServerConfig): Buffer {
       { bufferView: 1, byteOffset: 0, componentType: 5126, count: mesh.vertexCount, type: "VEC3" },
       { bufferView: 2, byteOffset: 0, componentType: 5126, count: mesh.vertexCount, type: "VEC4" },
       { bufferView: 3, byteOffset: 0, componentType: 5126, count: mesh.vertexCount, type: "SCALAR" },
-      {
-        bufferView: 4,
-        byteOffset: 0,
-        componentType: 5126,
-        count: mesh.lineVertexCount,
-        type: "VEC3",
-        min: linePositionBounds.min,
-        max: linePositionBounds.max,
-      },
-      {
-        bufferView: 5,
-        byteOffset: 0,
-        componentType: 5126,
-        count: mesh.lineVertexCount,
-        type: "VEC4",
-      },
-      {
-        bufferView: 6,
-        byteOffset: 0,
-        componentType: 5126,
-        count: mesh.lineVertexCount,
-        type: "SCALAR",
-      },
+      ...(hasLines
+        ? [
+            { bufferView: 4, byteOffset: 0, componentType: 5126, count: mesh.lineVertexCount, type: "VEC3", min: linePositionBounds.min, max: linePositionBounds.max },
+            { bufferView: 5, byteOffset: 0, componentType: 5126, count: mesh.lineVertexCount, type: "VEC4" },
+            { bufferView: 6, byteOffset: 0, componentType: 5126, count: mesh.lineVertexCount, type: "SCALAR" },
+          ]
+        : []),
     ],
   };
 
