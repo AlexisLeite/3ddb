@@ -37,7 +37,12 @@
     flex-direction: column;
   }
 
-  .tour-stop-header button {
+  .tour-stop-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .tour-stop-actions button {
     width: 100%;
   }
 

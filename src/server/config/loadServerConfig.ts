@@ -74,7 +74,7 @@ export function loadServerConfig(rootDir: string): ServerConfig {
     tileHttpCacheControl: envString("TILE_HTTP_CACHE_CONTROL", "no-store"),
     db: {
       host: envString("CITYDB_HOST", "127.0.0.1"),
-      port: envInteger("CITYDB_PORT", 5434),
+      port: envInteger("CITYDB_PORT", 5432),
       database: envString("CITYDB_NAME", "citydb"),
       user: envString("CITYDB_USER", "citydb"),
       password: envString("CITYDB_PASSWORD", "changeMe"),
@@ -90,6 +90,14 @@ export function loadServerConfig(rootDir: string): ServerConfig {
       minSurfacesPerPart: envInteger("MIN_SURFACES_PER_PART", 1500),
       minQueryRadiusMeters: envNumber("MIN_QUERY_RADIUS_METERS", 2000),
       maxQueryRadiusMeters: envNumber("MAX_QUERY_RADIUS_METERS", 800000),
+    },
+    sql: {
+      maxLength: envInteger("SQL_QUERY_MAX_LENGTH", 4000),
+      maxRows: envInteger("SQL_QUERY_MAX_ROWS", 200),
+      maxRenderIds: envInteger("SQL_QUERY_MAX_RENDER_IDS", 5000),
+      timeoutMs: envInteger("SQL_QUERY_TIMEOUT_MS", 3000),
+      registryLimit: envInteger("SQL_QUERY_REGISTRY_LIMIT", 80),
+      registryTtlMs: envInteger("SQL_QUERY_REGISTRY_TTL_MS", 1800000),
     },
     tiles,
   };

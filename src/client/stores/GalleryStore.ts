@@ -1,5 +1,6 @@
 import { makeAutoObservable, runInAction } from "mobx";
 import type { PointOfInterest } from "../gallery/PointOfInterest.js";
+import type { SqlQueryStore } from "../query/SqlQueryStore.js";
 import { RoutePlanner } from "../routing/RoutePlanner.js";
 import type { GalleryMapStore } from "./GalleryMapStore.js";
 
@@ -38,7 +39,10 @@ export class GalleryStore {
 
   private carouselTimer = 0;
 
-  constructor(private readonly mapStore: GalleryMapStore) {
+  constructor(
+    private readonly mapStore: GalleryMapStore,
+    private readonly queryStore: SqlQueryStore,
+  ) {
     makeAutoObservable(this, {}, { autoBind: true });
   }
 
@@ -56,6 +60,14 @@ export class GalleryStore {
    */
   get isLastPoint(): boolean {
     return this.selectedPointIndex >= this.points.length - 1;
+  }
+
+  /**
+   * Indicates whether the guided tour can move back to an earlier stop without
+   * wrapping around or leaving the ordered route.
+   */
+  get canGoPreviousPoint(): boolean {
+    return this.isTourStarted && this.selectedPointIndex > 0;
   }
 
   /**
@@ -100,32 +112,27 @@ export class GalleryStore {
   }
 
   /**
-   * Updates the selected point identifier and tells the map store to focus the
-   * chosen location using its Cesium side-effect method.
-   */
-  selectPoint(pointId: string): void {
-    this.selectedPointId = pointId;
-    this.currentImageIndex = 0;
-    this.stopCarousel();
-    const point = this.selectedPoint;
-    if (!point) return;
-    this.status = `Punto seleccionado: ${point.name}.`;
-    void this.mapStore.focusPoint(point);
-  }
-
-  /**
    * Marks the gallery as an active tour and moves the camera to the current
    * selected point, defaulting to the first point when needed.
    */
   startTour(): void {
-    if (this.points.length === 0) return;
+    this.startTourAtPoint(this.selectedPointId);
+  }
+
+  /**
+   * Starts the guided tour at a requested stop so the overview menu can jump
+   * directly into any point of the ordered route.
+   */
+  startTourAtPoint(pointId: string): void {
+    const point = this.points.find((candidate) => candidate.id === pointId) || this.points[0];
+    if (!point) return;
     this.isTourStarted = true;
     this.isTourFinished = false;
     this.currentImageIndex = 0;
-    const point = this.selectedPoint || this.points[0];
     this.selectedPointId = point.id;
     this.status = point ? `Recorrido iniciado en ${point.name}.` : "Recorrido iniciado.";
     this.restartCarousel(point);
+    void this.queryStore.applyForPoint(point.id);
     void this.mapStore.focusTourPoint(point);
   }
 
@@ -149,7 +156,39 @@ export class GalleryStore {
     this.currentImageIndex = 0;
     this.status = `Visitando ${nextPoint.name}.`;
     this.restartCarousel(nextPoint);
+    void this.queryStore.applyForPoint(nextPoint.id);
     void this.mapStore.focusTourPoint(nextPoint);
+  }
+
+  /**
+   * Moves the active guided-tour stop back one position while keeping the
+   * carousel and Cesium camera synchronized with the selected place.
+   */
+  previousTourPoint(): void {
+    if (!this.canGoPreviousPoint) return;
+
+    const previousPoint = this.points[this.selectedPointIndex - 1];
+    this.selectedPointId = previousPoint.id;
+    this.currentImageIndex = 0;
+    this.status = `Visitando ${previousPoint.name}.`;
+    this.restartCarousel(previousPoint);
+    void this.queryStore.applyForPoint(previousPoint.id);
+    void this.mapStore.focusTourPoint(previousPoint);
+  }
+
+  /**
+   * Leaves the final tour screen, clears SQL query state and restores the
+   * initial overview menu so a new visit starts without rendered filters.
+   */
+  returnToMenu(): void {
+    this.stopCarousel();
+    this.isTourStarted = false;
+    this.isTourFinished = false;
+    this.selectedPointId = this.points[0]?.id || "";
+    this.currentImageIndex = 0;
+    this.status = `${this.points.length} lugares listos para visitar.`;
+    this.queryStore.reset();
+    void this.mapStore.finishTour(this.points);
   }
 
   private normalizePoint(rawPoint: RawGalleryPoint, index: number): PointOfInterest {
@@ -171,6 +210,7 @@ export class GalleryStore {
     this.isTourStarted = false;
     this.isTourFinished = true;
     this.status = "Gracias por recorrer la galeria virtual.";
+    void this.queryStore.clearMapFilter();
     void this.mapStore.finishTour(this.points);
   }
 

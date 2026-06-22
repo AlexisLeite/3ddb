@@ -1,13 +1,16 @@
 import { observer } from "mobx-react-lite";
+import { SqlQueryPanel } from "../query/SqlQueryPanel.js";
+import type { SqlQueryStore } from "../query/SqlQueryStore.js";
 import type { GalleryMapStore } from "../stores/GalleryMapStore.js";
 import type { GalleryStore } from "../stores/GalleryStore.js";
 
 interface GalleryPanelProps {
   galleryStore: GalleryStore;
   mapStore: GalleryMapStore;
+  queryStore: SqlQueryStore;
 }
 
-function GalleryPanelView({ galleryStore, mapStore }: GalleryPanelProps) {
+function GalleryPanelView({ galleryStore, mapStore, queryStore }: GalleryPanelProps) {
   const selectedPoint = galleryStore.selectedPoint;
   const panelClassName = [
     "gallery-panel",
@@ -24,6 +27,9 @@ function GalleryPanelView({ galleryStore, mapStore }: GalleryPanelProps) {
           <p className="panel-kicker">Recorrido finalizado</p>
           <h1>Gracias por visitar la galeria virtual.</h1>
           <p>{galleryStore.status}</p>
+          <button type="button" onClick={galleryStore.returnToMenu}>
+            Volver al menu inicial
+          </button>
         </section>
       </aside>
     );
@@ -37,9 +43,18 @@ function GalleryPanelView({ galleryStore, mapStore }: GalleryPanelProps) {
             <p className="panel-kicker">
               Punto {galleryStore.points.indexOf(selectedPoint) + 1} de {galleryStore.points.length}
             </p>
-            <button type="button" onClick={galleryStore.nextTourPoint}>
-              {galleryStore.isLastPoint ? "Finalizar recorrido" : "Siguiente"}
-            </button>
+            <div className="tour-stop-actions">
+              <button
+                type="button"
+                onClick={galleryStore.previousTourPoint}
+                disabled={!galleryStore.canGoPreviousPoint}
+              >
+                Anterior
+              </button>
+              <button type="button" onClick={galleryStore.nextTourPoint}>
+                {galleryStore.isLastPoint ? "Finalizar recorrido" : "Siguiente"}
+              </button>
+            </div>
           </div>
 
           <figure className="poi-carousel">
@@ -51,6 +66,8 @@ function GalleryPanelView({ galleryStore, mapStore }: GalleryPanelProps) {
             <p className="poi-address">{selectedPoint.address}</p>
             <p>{selectedPoint.summary}</p>
           </div>
+
+          <SqlQueryPanel point={selectedPoint} queryStore={queryStore} />
         </section>
       </aside>
     );
@@ -69,15 +86,18 @@ function GalleryPanelView({ galleryStore, mapStore }: GalleryPanelProps) {
 
       <section className="poi-list" aria-label="Lugares a visitar">
         {galleryStore.points.map((point, index) => (
-          <article
+          <button
+            type="button"
             key={point.id}
             className={point.id === galleryStore.selectedPointId ? "poi-item is-selected" : "poi-item"}
+            onClick={() => galleryStore.startTourAtPoint(point.id)}
+            disabled={galleryStore.isLoading}
           >
             <span className="poi-index">{index + 1}</span>
             <span>
               <strong>{point.name}</strong>
             </span>
-          </article>
+          </button>
         ))}
       </section>
     </aside>

@@ -22,7 +22,7 @@ export class DataTiler {
    * Builds the root 3D Tiles tileset document for the imported city parts,
    * including child tile regions, transforms and b3dm content URIs.
    */
-  buildTileset(parts: CityPart[]): Record<string, unknown> {
+  buildTileset(parts: CityPart[], queryId: string | null = null): Record<string, unknown> {
     const rootRegion = regionFromParts(parts, this.config);
     if (!rootRegion) {
       throw new Error("No imported New York City parts have valid bounds");
@@ -41,7 +41,7 @@ export class DataTiler {
         },
         geometricError: this.config.tiles.rootGeometricError,
         refine: "REPLACE",
-        children: parts.map((part) => this.buildPartTile(part)),
+        children: parts.map((part) => this.buildPartTile(part, queryId)),
       },
       properties: {
         partId: {},
@@ -78,7 +78,7 @@ export class DataTiler {
     return emptyB3dm();
   }
 
-  private buildPartTile(part: CityPart): Record<string, unknown> {
+  private buildPartTile(part: CityPart, queryId: string | null): Record<string, unknown> {
     const verticalOffsetMeters = partVerticalOffsetMeters(part, this.config);
     const frame = localFrameForParts([part], this.config, verticalOffsetMeters);
     if (!frame) {
@@ -99,7 +99,7 @@ export class DataTiler {
         refine: "REPLACE",
         transform: frame.transform,
         content: {
-          uri: tileUriForPart(part, this.config, tile.bounds),
+          uri: tileUriForPart(part, this.config, tile.bounds, queryId),
         },
       })),
     };

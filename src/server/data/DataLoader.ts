@@ -8,6 +8,7 @@ import { sortPartIds } from "../domain/sortPartIds.js";
 import type { SpatialWindow } from "../domain/SpatialWindow.js";
 import type { Surface } from "../domain/Surface.js";
 import type { SurfaceData } from "../domain/SurfaceData.js";
+import type { SqlRenderFilter } from "../sql/SqlRenderFilter.js";
 import type { BoundsRow } from "./BoundsRow.js";
 import type { CityStatsRow } from "./CityStatsRow.js";
 import { cityStatsQuery, partBoundsQuery, surfaceQuery } from "./queries.js";
@@ -165,7 +166,11 @@ export class DataLoader {
    * Loads renderable surface polygons for imported parts within the requested
    * or inferred spatial window, applying configured per-part response limits.
    */
-  async loadSurfaces(partIds: string[], requestedView: SpatialWindow | null): Promise<SurfaceData> {
+  async loadSurfaces(
+    partIds: string[],
+    requestedView: SpatialWindow | null,
+    renderFilter: SqlRenderFilter | null = null,
+  ): Promise<SurfaceData> {
     const parts = await this.getImportedParts(partIds);
     const view = requestedView || spatialWindowFromParts(parts);
 
@@ -188,6 +193,8 @@ export class DataLoader {
       view.maxLon,
       view.maxLat,
       this.config.nyc.verticalScale,
+      renderFilter?.kind || "none",
+      renderFilter?.ids || [],
     ]);
 
     return {

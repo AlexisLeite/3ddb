@@ -2,6 +2,7 @@ import { makeAutoObservable, runInAction } from "mobx";
 import { CesiumPerformanceSettings } from "./CesiumPerformanceSettings.js";
 import { FocusController } from "../focus/FocusController.js";
 import type { PointOfInterest } from "../gallery/PointOfInterest.js";
+import { replaceDatasetTileset } from "../map/replaceDatasetTileset.js";
 import { GalleryCameraController } from "./GalleryCameraController.js";
 
 const webMapClientUrl =
@@ -25,6 +26,8 @@ export class GalleryMapStore {
   isDatasetLoaded = false;
 
   isPanoramaActive = false;
+
+  activeQueryId: string | null = null;
 
   private frameElement: HTMLIFrameElement | null = null;
 
@@ -109,6 +112,16 @@ export class GalleryMapStore {
     await this.camera.finishTour(points);
   }
 
+  /**
+   * Reloads the 3D Tiles dataset with an optional SQL query identifier so the
+   * visible buildings match the active tour stop query state.
+   */
+  async applySqlQuery(queryId: string | null): Promise<void> {
+    if (this.activeQueryId === queryId && this.isDatasetLoaded) return;
+    const frameWindow = await this.waitForClient();
+    await this.replaceDataset(frameWindow, queryId);
+  }
+
   private frameWindow(): Window | null {
     return this.frameElement?.contentWindow || null;
   }
@@ -148,20 +161,15 @@ export class GalleryMapStore {
 
   private async loadDataset(frameWindow: Window): Promise<void> {
     if (this.isDatasetLoaded) return;
+    await this.replaceDataset(frameWindow, this.activeQueryId);
+  }
 
-    const Cesium = (frameWindow as any).Cesium;
-    const viewer = (frameWindow as any).cesiumViewer;
-    const url = "/api/citydb/3dtiles/tileset.json?parts=NYC_DA10";
-    const options = CesiumPerformanceSettings.tilesetOptions();
-    const tileset =
-      typeof Cesium.Cesium3DTileset.fromUrl === "function"
-        ? await Cesium.Cesium3DTileset.fromUrl(url, options)
-        : new Cesium.Cesium3DTileset({ url, ...options });
-
-    this.tileset = viewer.scene.primitives.add(tileset);
-    if (this.tileset.readyPromise) await this.tileset.readyPromise;
-    viewer.scene.requestRender?.();
+  private async replaceDataset(frameWindow: Window, queryId: string | null): Promise<void> {
+    const partId = import.meta.env.VITE_DEFAULT_SELECTED_PART_ID || "NYC_DA1";
+    const tileset = await replaceDatasetTileset(frameWindow, partId, queryId, this.tileset);
     runInAction(() => {
+      this.tileset = tileset;
+      this.activeQueryId = queryId;
       this.isDatasetLoaded = true;
     });
   }

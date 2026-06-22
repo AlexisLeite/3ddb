@@ -1,0 +1,138 @@
+.sql-query-panel {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(244, 241, 232, 0.12);
+}
+
+.sql-bbox-tools {
+  display: grid;
+  grid-template-columns: minmax(88px, 120px) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.sql-bbox-tools label {
+  display: grid;
+  gap: 6px;
+  color: rgba(244, 241, 232, 0.72);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.sql-bbox-tools input {
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid rgba(244, 241, 232, 0.16);
+  border-radius: 6px;
+  background: rgba(4, 7, 6, 0.58);
+  color: #f4f1e8;
+  font: inherit;
+  padding: 0 10px;
+}
+
+.sql-query-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.sql-bbox-tools button,
+.sql-query-actions button,
+.tour-finished button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 6px;
+  background: #d9e794;
+  color: #111610;
+  cursor: pointer;
+  font-weight: 900;
+  transition:
+    transform 160ms ease,
+    background 160ms ease;
+}
+
+.sql-bbox-tools button {
+  align-self: end;
+  padding: 0 12px;
+}
+
+.sql-query-actions button {
+  flex: 1 1 0;
+  padding: 0 12px;
+}
+
+.tour-finished button {
+  margin-top: 14px;
+  padding: 0 18px;
+}
+
+.sql-bbox-tools button:hover,
+.sql-query-actions button:hover,
+.tour-finished button:hover {
+  background: #edf6b8;
+  transform: translateY(-1px);
+}
+
+.sql-bbox-tools button:disabled,
+.sql-query-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  transform: none;
+}
+
+.sql-query-error,
+.sql-query-status {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.sql-query-error {
+  color: #ffb199;
+}
+
+.sql-query-status {
+  color: rgba(217, 231, 148, 0.86);
+  font-weight: 800;
+}
+
+.sql-query-table {
+  max-height: 190px;
+  overflow: auto;
+  border: 1px solid rgba(244, 241, 232, 0.12);
+  border-radius: 6px;
+}
+
+.sql-query-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.sql-query-table th,
+.sql-query-table td {
+  max-width: 180px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(244, 241, 232, 0.08);
+  color: rgba(244, 241, 232, 0.82);
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sql-query-table th {
+  position: sticky;
+  top: 0;
+  background: rgba(8, 11, 10, 0.96);
+  color: #d9e794;
+  font-weight: 900;
+}
+
+@media (max-width: 860px) {
+  .sql-bbox-tools,
+  .sql-query-actions {
+    flex-direction: column;
+    grid-template-columns: 1fr;
+  }
+}

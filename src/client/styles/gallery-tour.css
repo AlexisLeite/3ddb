@@ -12,7 +12,12 @@
   gap: 18px;
 }
 
-.tour-stop-header button {
+.tour-stop-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.tour-stop-actions button {
   min-width: 142px;
   min-height: 42px;
   border: 0;
@@ -26,9 +31,15 @@
     background 160ms ease;
 }
 
-.tour-stop-header button:hover {
+.tour-stop-actions button:hover {
   background: #edf6b8;
   transform: translateY(-1px);
+}
+
+.tour-stop-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  transform: none;
 }
 
 .poi-carousel {

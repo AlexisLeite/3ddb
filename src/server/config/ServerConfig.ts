@@ -33,6 +33,14 @@ export interface ServerConfig {
     minQueryRadiusMeters: number;
     maxQueryRadiusMeters: number;
   };
+  sql: {
+    maxLength: number;
+    maxRows: number;
+    maxRenderIds: number;
+    timeoutMs: number;
+    registryLimit: number;
+    registryTtlMs: number;
+  };
   tiles: {
     gridDivisions: number;
     rootGeometricError: number;

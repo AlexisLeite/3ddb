@@ -1,4 +1,5 @@
 import { observer } from "mobx-react-lite";
+import type { SqlQueryStore } from "../query/SqlQueryStore.js";
 import type { GalleryMapStore } from "../stores/GalleryMapStore.js";
 import type { GalleryStore } from "../stores/GalleryStore.js";
 import { GalleryMap } from "./GalleryMap.js";
@@ -7,13 +8,14 @@ import { GalleryPanel } from "./GalleryPanel.js";
 interface GalleryAppProps {
   galleryStore: GalleryStore;
   mapStore: GalleryMapStore;
+  queryStore: SqlQueryStore;
 }
 
-function GalleryAppView({ galleryStore, mapStore }: GalleryAppProps) {
+function GalleryAppView({ galleryStore, mapStore, queryStore }: GalleryAppProps) {
   return (
     <main className="gallery-shell">
       <GalleryMap mapStore={mapStore} />
-      <GalleryPanel galleryStore={galleryStore} mapStore={mapStore} />
+      <GalleryPanel galleryStore={galleryStore} mapStore={mapStore} queryStore={queryStore} />
     </main>
   );
 }

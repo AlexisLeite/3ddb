@@ -12,7 +12,7 @@ the web viewer.
 - Imported into: PostgreSQL container `3dcitydb`
 - Database: `citydb`
 - Schema: `citydb`
-- Port from host: `localhost:5434`
+- Port from host: `localhost:5432`
 
 Each delivery area is imported as its own lineage:
 
@@ -205,18 +205,44 @@ The Vite dev server exposes:
   tile generated from the selected 3DCityDB surfaces. The Web Map Client uses
   tiled URLs with `minLon`, `minLat`, `maxLon`, and `maxLat` so Cesium can
   request only the visible cells instead of one full delivery area tile.
+- `POST /api/citydb/query`: validates a read-only SQL request, returns a small
+  preview table and registers a short-lived `queryId` that can be rendered by
+  `/api/citydb/3dtiles/tileset.json?parts=NYC_DA10&queryId=...`.
 
-The 3DCityDB Web Map panel includes an editable `SQL WHERE` field. The condition
-is applied only to the active selected parts and supports these query aliases:
-`f` for `citydb.feature`, `p` for `citydb.property`, `gd` for
-`citydb.geometry_data`, `oc` for `citydb.objectclass`, and `bm` for calculated
-building metrics.
+The tour panel includes a per-stop SQL console. In `Filtro mapa` mode the text
+is treated as a `SQL WHERE` condition and is applied only to the loaded/default
+part. It supports these aliases: `f` for `citydb.feature`, `p` for
+`citydb.property`, `gd` for `citydb.geometry_data`, `oc` for
+`citydb.objectclass`, and `bm` for calculated building metrics. In `SELECT`
+mode the query must return `feature_id` or `geometry_id` so the app can render
+the selected buildings in the 3D map.
 
 Example:
 
 ```sql
 oc.classname = 'RoofSurface'
 ```
+
+Bounding box around a point of interest:
+
+```sql
+gd.geometry && ST_Transform(ST_MakeEnvelope(-73.9849, 40.7658, -73.9790, 40.7703, 4326), 2263)
+```
+
+Example body:
+
+```json
+{
+  "mode": "where",
+  "sql": "oc.classname = 'RoofSurface'",
+  "tourPointId": "poi-1",
+  "limit": 200
+}
+```
+
+SQL console limits are configured with `SQL_QUERY_MAX_LENGTH`,
+`SQL_QUERY_MAX_ROWS`, `SQL_QUERY_MAX_RENDER_IDS`, `SQL_QUERY_TIMEOUT_MS`,
+`SQL_QUERY_REGISTRY_LIMIT`, and `SQL_QUERY_REGISTRY_TTL_MS`.
 
 ## Calles NYC
 

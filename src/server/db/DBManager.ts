@@ -26,6 +26,31 @@ export class DBManager {
   }
 
   /**
+   * Runs a database operation inside a read-only transaction with a local
+   * statement timeout so user-authored SQL cannot mutate or hang the server.
+   */
+  async withReadOnlyTransaction<T>(
+    timeoutMs: number,
+    operation: (client: pg.PoolClient) => Promise<T>,
+  ): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin read only");
+      await client.query("select set_config('statement_timeout', $1, true)", [
+        `${timeoutMs}ms`,
+      ]);
+      const result = await operation(client);
+      await client.query("commit");
+      return result;
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * Closes the managed PostgreSQL pool, allowing shutdown flows to release
    * database connections cleanly when the server is disposed.
    */
