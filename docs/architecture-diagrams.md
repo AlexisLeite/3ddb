@@ -29,7 +29,6 @@ flowchart LR
   plugin --> cache
   plugin --> loader
   plugin --> tiler
-  loader --> diskCache[(data/nycity-parts-cache.json)]
   loader --> db[(PostgreSQL 3DCityDB)]
   tiler --> b3dm[b3dm and glTF buffers]
   b3dm --> tile
@@ -191,20 +190,16 @@ classDiagram
   }
 
   class DataLoader {
-    -partConfigs CityPart[]
-    -validPartIds Set
-    -partsCache CityPart[]
-    +normalizePartIds(partsParam) string[]
-    +getParts() Promise
-    +refreshParts() Promise
-    +partsPayload(parts) object
-    +getImportedParts(partIds) Promise
-    +loadSurfaces(partIds, view) Promise
+    -datasetCache DatasetMetadata
+    +getDataset() Promise
+    +refreshDataset() Promise
+    +metadataPayload(dataset) object
+    +loadSurfaces(view) Promise
   }
 
-  class spatialWindowFromParts {
+  class spatialWindowFromDataset {
     <<function>>
-    +spatialWindowFromParts(parts) SpatialWindow
+    +spatialWindowFromDataset(dataset) SpatialWindow
   }
 
   class DBManager {
@@ -214,7 +209,7 @@ classDiagram
   }
 
   class DataTiler {
-    +buildTileset(parts) object
+    +buildTileset(dataset) object
     +buildTile(surfaceData) Buffer
     +emptyTile() Buffer
   }
@@ -225,9 +220,8 @@ classDiagram
     +set(key, body) void
   }
 
-  class CityPart {
+  class DatasetMetadata {
     <<interface>>
-    +id string
     +label string
     +lod string
     +imported boolean
@@ -237,15 +231,13 @@ classDiagram
 
   class SurfaceData {
     <<interface>>
-    +partIds string[]
-    +parts CityPart[]
+    +dataset DatasetMetadata
     +view SpatialWindow
     +surfaces Surface[]
   }
 
   class Surface {
     <<interface>>
-    +partId string
     +geometryId number
     +featureId number
     +objectId string
@@ -261,11 +253,11 @@ classDiagram
   Server --> DataLoader
   Server --> DataTiler
   DataLoader --> DBManager
-  DataLoader --> CityPart
+  DataLoader --> DatasetMetadata
   DataLoader --> SurfaceData
-  DataLoader --> spatialWindowFromParts
+  DataLoader --> spatialWindowFromDataset
   SurfaceData --> Surface
-  SurfaceData --> CityPart
+  SurfaceData --> DatasetMetadata
   DataTiler --> SurfaceData
 ```
 
@@ -281,7 +273,6 @@ erDiagram
     bigint id PK
     bigint objectclass_id FK
     text objectid
-    text lineage
     geometry envelope
   }
 
@@ -316,8 +307,7 @@ erDiagram
 
 The current dynamic 3D Tiles path queries `citydb.feature`,
 `citydb.property`, `citydb.geometry_data`, and `citydb.objectclass`.
-`feature.lineage` partitions imported delivery areas such as `NYC_DA10`.
-`feature.envelope` provides part bounds and `geometry_data.geometry` provides
+`feature.envelope` provides dataset bounds and `geometry_data.geometry` provides
 renderable polygons filtered by the requested tile window. The README also
 documents `city_layers.nyc_streets`, but the current `Server.ts` routes do not
 register the streets endpoint.
@@ -334,24 +324,23 @@ sequenceDiagram
   participant Tiler as DataTiler
   participant Cache as ResponseCache
 
-  Cesium->>Server: GET /api/citydb/3dtiles/tileset.json?parts=NYC_DA10
-  Server->>Loader: normalizePartIds(parts)
-  Server->>Loader: getImportedParts(partIds)
-  Loader->>DB: cityStatsQuery and partBoundsQuery
-  DB-->>Loader: imported parts with bounds
-  Loader-->>Server: CityPart[]
-  Server->>Tiler: buildTileset(parts)
+  Cesium->>Server: GET /api/citydb/3dtiles/tileset.json
+  Server->>Loader: getDataset()
+  Loader->>DB: cityStatsQuery and datasetBoundsQuery
+  DB-->>Loader: dataset stats and bounds
+  Loader-->>Server: DatasetMetadata
+  Server->>Tiler: buildTileset(dataset)
   Tiler-->>Server: tileset.json with child tile URIs
   Server-->>Cesium: JSON tileset
 
-  Cesium->>Server: GET /api/citydb/3dtiles/tile.b3dm?parts=...&minLon=...
+  Cesium->>Server: GET /api/citydb/3dtiles/tile.b3dm?minLon=...
   Server->>Cache: get(searchParams)
   alt cache hit
     Cache-->>Server: Buffer
     Server-->>Cesium: cached b3dm
   else cache miss
-    Server->>Loader: loadSurfaces(partIds, spatialWindow)
-    Loader->>DB: surfaceQuery with lineage, LoD, limits, envelope
+    Server->>Loader: loadSurfaces(spatialWindow)
+    Loader->>DB: surfaceQuery with LoD, limits, envelope
     DB-->>Loader: polygon GeoJSON rows
     Loader-->>Server: SurfaceData
     Server->>Tiler: buildTile(surfaceData)
@@ -439,7 +428,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-  surfaces[Surface rows from DataLoader] --> frame[localFrameForParts]
+  surfaces[Surface rows from DataLoader] --> frame[localFrameForDataset]
   frame --> mesh[meshFromSurfaces]
   surfaces --> mesh
   mesh --> validate[normalize rings and classify surface]
@@ -453,6 +442,5 @@ flowchart TD
 ```
 
 The generated `b3dm` contains a glTF mesh with triangle and line primitives.
-Batch table metadata preserves `partId`, `geometryId`, `featureId`, `objectId`,
-`className`, `lod`, `property`, and derived `surfaceType` for Cesium styling or
-inspection.
+Batch table metadata preserves `geometryId`, `featureId`, `objectId`, `className`,
+`lod`, `property`, and derived `surfaceType` for Cesium styling or inspection.

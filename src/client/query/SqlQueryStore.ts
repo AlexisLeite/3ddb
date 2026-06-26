@@ -12,9 +12,11 @@ interface SqlQueryEntry {
   columns: string[];
   rows: Record<string, unknown>[];
   rowCount: number;
+  totalRowCount: number;
   truncated: boolean;
   bboxMeters: number;
   isLoading: boolean;
+  isTableVisible: boolean;
   error: string;
 }
 
@@ -23,7 +25,13 @@ interface SqlQueryResponse {
   columns: string[];
   rows: Record<string, unknown>[];
   rowCount: number;
+  totalRowCount: number;
   truncated: boolean;
+}
+
+interface SqlQueryPayload {
+  mode: SqlMode;
+  sql: string;
 }
 
 const defaultEntry: SqlQueryEntry = {
@@ -33,9 +41,11 @@ const defaultEntry: SqlQueryEntry = {
   columns: [],
   rows: [],
   rowCount: 0,
+  totalRowCount: 0,
   truncated: false,
   bboxMeters: 200,
   isLoading: false,
+  isTableVisible: false,
   error: "",
 };
 
@@ -63,9 +73,7 @@ export class SqlQueryStore {
    * previous attempt while preserving the typed SQL text.
    */
   setMode(pointId: string, mode: SqlMode): void {
-    const entry = this.ensureEntry(pointId);
-    entry.mode = mode;
-    entry.error = "";
+    this.updateEntry(pointId, { mode, error: "" });
   }
 
   /**
@@ -73,10 +81,17 @@ export class SqlQueryStore {
    * because the saved result no longer matches what the user typed.
    */
   setSql(pointId: string, sql: string): void {
-    const entry = this.ensureEntry(pointId);
-    entry.sql = sql;
-    entry.queryId = "";
-    entry.error = "";
+    this.updateEntry(pointId, {
+      sql,
+      queryId: "",
+      columns: [],
+      rows: [],
+      rowCount: 0,
+      totalRowCount: 0,
+      truncated: false,
+      isTableVisible: false,
+      error: "",
+    });
   }
 
   /**
@@ -84,8 +99,9 @@ export class SqlQueryStore {
    * condition around the active tour point.
    */
   setBboxMeters(pointId: string, meters: number): void {
-    const entry = this.ensureEntry(pointId);
-    entry.bboxMeters = Math.max(25, Math.min(2000, Math.round(meters || 200)));
+    this.updateEntry(pointId, {
+      bboxMeters: Math.max(25, Math.min(2000, Math.round(meters || 200))),
+    });
   }
 
   /**
@@ -94,11 +110,31 @@ export class SqlQueryStore {
    */
   async executeBoundingBox(point: PointOfInterest): Promise<void> {
     const entry = this.ensureEntry(point.id);
-    entry.mode = "where";
-    entry.sql = bboxWhereSql(point.latitude, point.longitude, entry.bboxMeters);
-    entry.queryId = "";
-    entry.error = "";
-    await this.execute(point.id);
+    const sql = bboxWhereSql(point.latitude, point.longitude, entry.bboxMeters);
+    this.updateEntry(point.id, {
+      mode: "where",
+      sql,
+      queryId: "",
+      columns: [],
+      rows: [],
+      rowCount: 0,
+      totalRowCount: 0,
+      truncated: false,
+      isTableVisible: false,
+      error: "",
+    });
+    await this.executeQuery(point.id, { mode: "where", sql });
+  }
+
+  /**
+   * Reveals the preview table for the latest successful query saved for one
+   * tour point, keeping table rendering separate from applying map filters.
+   */
+  showResults(pointId: string): void {
+    const entry = this.ensureEntry(pointId);
+    this.updateEntry(pointId, {
+      isTableVisible: entry.queryId !== "" && entry.columns.length > 0,
+    });
   }
 
   /**
@@ -107,34 +143,43 @@ export class SqlQueryStore {
    */
   async execute(pointId: string): Promise<void> {
     const entry = this.ensureEntry(pointId);
-    entry.isLoading = true;
-    entry.error = "";
+    await this.executeQuery(pointId, { mode: entry.mode, sql: entry.sql });
+  }
+
+  private async executeQuery(pointId: string, query: SqlQueryPayload): Promise<void> {
+    this.updateEntry(pointId, { isLoading: true, isTableVisible: false, error: "" });
     try {
       const response = await fetch("/api/citydb/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode: entry.mode,
-          sql: entry.sql,
+          mode: query.mode,
+          sql: query.sql,
           tourPointId: pointId,
           limit: 200,
         }),
       });
       const body = await response.json() as Partial<SqlQueryResponse> & { error?: string };
       if (!response.ok) throw new Error(body.error || "No se pudo ejecutar la consulta.");
+      const queryId = body.queryId || "";
       runInAction(() => {
-        entry.queryId = body.queryId || "";
-        entry.columns = body.columns || [];
-        entry.rows = body.rows || [];
-        entry.rowCount = body.rowCount || 0;
-        entry.truncated = Boolean(body.truncated);
-        entry.isLoading = false;
+        this.updateEntry(pointId, {
+          queryId,
+          columns: body.columns || [],
+          rows: body.rows || [],
+          rowCount: body.rowCount || 0,
+          totalRowCount: body.totalRowCount ?? body.rowCount ?? 0,
+          truncated: Boolean(body.truncated),
+          isLoading: false,
+        });
       });
-      await this.mapStore.applySqlQuery(entry.queryId || null);
+      await this.mapStore.applySqlQuery(queryId || null);
     } catch (error) {
       runInAction(() => {
-        entry.isLoading = false;
-        entry.error = error instanceof Error ? error.message : "No se pudo ejecutar la consulta.";
+        this.updateEntry(pointId, {
+          isLoading: false,
+          error: error instanceof Error ? error.message : "No se pudo ejecutar la consulta.",
+        });
       });
     }
   }
@@ -178,6 +223,12 @@ export class SqlQueryStore {
     const existing = this.entries.get(pointId);
     if (existing) return existing;
     const entry = { ...defaultEntry };
+    this.entries.set(pointId, entry);
+    return entry;
+  }
+
+  private updateEntry(pointId: string, changes: Partial<SqlQueryEntry>): SqlQueryEntry {
+    const entry = { ...this.ensureEntry(pointId), ...changes };
     this.entries.set(pointId, entry);
     return entry;
   }

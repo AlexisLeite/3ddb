@@ -7,7 +7,7 @@ function degreesToRadians(value: number): number {
 
 /**
  * Converts geographic bounds into the 3D Tiles region array format using the
- * configured vertical scale and optional per-part height offset.
+ * configured vertical scale and optional dataset height offset.
  */
 export function regionFromBounds(
   bounds: Bounds,

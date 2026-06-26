@@ -223,7 +223,6 @@ export function meshFromSurfaces(surfaces: Surface[], frame: LocalFrame, config:
   if (mesh.lineVertices.length > 0) {
     const edgeBatchId = mesh.batches.length;
     mesh.batches.push({
-      partId: "outline",
       geometryId: 0,
       featureId: 0,
       objectId: "outline",

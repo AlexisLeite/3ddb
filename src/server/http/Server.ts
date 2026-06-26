@@ -85,11 +85,11 @@ export class Server {
 
     try {
       const url = requestUrl(req);
-      const parts =
+      const dataset =
         url.searchParams.get("refresh") === "1"
-          ? await this.dataLoader.refreshParts()
-          : await this.dataLoader.getParts();
-      sendJson(res, 200, this.dataLoader.partsPayload(parts));
+          ? await this.dataLoader.refreshDataset()
+          : await this.dataLoader.getDataset();
+      sendJson(res, 200, this.dataLoader.metadataPayload(dataset));
     } catch (error) {
       sendApiError(res, error);
     }
@@ -100,9 +100,8 @@ export class Server {
 
     const url = requestUrl(req);
     const queryId = url.searchParams.get("queryId");
-    const requestedPartIds = this.dataLoader.normalizePartIds(url.searchParams.get("parts"));
-    if (requestedPartIds.length === 0) {
-      sendJson(res, 400, { error: "No valid New York City parts requested" });
+    if (url.searchParams.has("parts")) {
+      sendJson(res, 400, { error: "The connected dataset API does not accept parts" });
       return;
     }
     if (queryId && !this.sqlQueryService.renderFilter(queryId)) {
@@ -111,12 +110,12 @@ export class Server {
     }
 
     try {
-      const parts = await this.dataLoader.getImportedParts(requestedPartIds);
-      if (parts.length === 0) {
-        sendJson(res, 404, { error: "Requested New York City parts are not imported" });
+      const dataset = await this.dataLoader.getDataset();
+      if (!dataset.imported) {
+        sendJson(res, 404, { error: "The connected 3DCityDB dataset is not imported" });
         return;
       }
-      sendJson(res, 200, this.dataTiler.buildTileset(parts, queryId));
+      sendJson(res, 200, this.dataTiler.buildTileset(dataset, queryId));
     } catch (error) {
       sendApiError(res, error);
     }
@@ -138,11 +137,10 @@ export class Server {
     if (!this.requireGet(req, res)) return;
 
     const url = requestUrl(req);
-    const requestedPartIds = this.dataLoader.normalizePartIds(url.searchParams.get("parts"));
     const queryId = url.searchParams.get("queryId");
     const renderFilter = this.sqlQueryService.renderFilter(queryId);
-    if (requestedPartIds.length === 0) {
-      sendJson(res, 400, { error: "No valid New York City parts requested" });
+    if (url.searchParams.has("parts")) {
+      sendJson(res, 400, { error: "The connected dataset API does not accept parts" });
       return;
     }
     if (queryId && !renderFilter) {
@@ -169,7 +167,7 @@ export class Server {
         this.config.query.minQueryRadiusMeters,
         this.config.query.maxQueryRadiusMeters,
       );
-      const surfaceData = await this.dataLoader.loadSurfaces(requestedPartIds, view, renderFilter);
+      const surfaceData = await this.dataLoader.loadSurfaces(view, renderFilter);
       const responseBody = this.dataTiler.buildTile(surfaceData);
       this.tileCache.set(cacheKey, responseBody);
       sendBinary(

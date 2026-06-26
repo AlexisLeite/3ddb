@@ -1,8 +1,6 @@
 /**
- * Represents the per-lineage feature count returned by the city statistics
- * query before the loader merges it into configured city part metadata.
+ * Represents the connected dataset feature count returned by the stats query.
  */
 export interface CityStatsRow {
-  id: string;
   features: number;
 }

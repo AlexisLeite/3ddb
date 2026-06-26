@@ -3,7 +3,6 @@
  * normalized into the domain Surface object consumed by tile generation.
  */
 export interface SurfaceRow {
-  lineage: string;
   geometry_id: number;
   feature_id: number;
   objectid: string;

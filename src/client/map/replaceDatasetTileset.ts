@@ -1,12 +1,11 @@
 import { CesiumPerformanceSettings } from "../stores/CesiumPerformanceSettings.js";
 
 /**
- * Replaces the Cesium 3D Tiles primitive with the dataset URL that corresponds
- * to the selected part and optional SQL query render identifier.
+ * Replaces the Cesium 3D Tiles primitive with the connected dataset URL and
+ * optional SQL query render identifier.
  */
 export async function replaceDatasetTileset(
   frameWindow: Window,
-  partId: string,
   queryId: string | null,
   currentTileset: any,
 ): Promise<any> {
@@ -15,7 +14,6 @@ export async function replaceDatasetTileset(
   if (!Cesium || !viewer) return currentTileset;
 
   const url = new URL("/api/citydb/3dtiles/tileset.json", window.location.origin);
-  url.searchParams.set("parts", partId);
   if (queryId) url.searchParams.set("queryId", queryId);
 
   if (currentTileset) viewer.scene.primitives.remove(currentTileset);

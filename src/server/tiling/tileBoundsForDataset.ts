@@ -1,15 +1,17 @@
 import type { ServerConfig } from "../config/ServerConfig.js";
-import type { CityPart } from "../domain/CityPart.js";
+import type { DatasetMetadata } from "../domain/DatasetMetadata.js";
 import type { TileBounds } from "./types/TileBounds.js";
 
 /**
- * Splits a city part bounding box into a deterministic tile grid used as child
- * content entries in the generated 3D Tiles tileset.
+ * Splits the connected dataset bounding box into a deterministic tile grid.
  */
-export function tileBoundsForPart(part: CityPart, config: ServerConfig): TileBounds[] {
-  if (!part.bounds) return [];
+export function tileBoundsForDataset(
+  dataset: DatasetMetadata,
+  config: ServerConfig,
+): TileBounds[] {
+  const bounds = dataset.bounds;
+  if (!bounds) return [];
 
-  const { bounds } = part;
   const lonSpan = bounds.maxLon - bounds.minLon;
   const latSpan = bounds.maxLat - bounds.minLat;
   if (lonSpan <= 0 || latSpan <= 0) return [];
@@ -21,7 +23,7 @@ export function tileBoundsForPart(part: CityPart, config: ServerConfig): TileBou
   for (let y = 0; y < config.tiles.gridDivisions; y += 1) {
     for (let x = 0; x < config.tiles.gridDivisions; x += 1) {
       tiles.push({
-        id: `${part.id}-${x}-${y}`,
+        id: `dataset-${x}-${y}`,
         bounds: {
           minLon: bounds.minLon + lonStep * x,
           minLat: bounds.minLat + latStep * y,

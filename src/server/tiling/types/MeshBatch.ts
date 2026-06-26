@@ -3,7 +3,6 @@
  * surface metadata through the 3D Tiles batch table.
  */
 export interface MeshBatch {
-  partId: string;
   geometryId: number;
   featureId: number;
   objectId: string;

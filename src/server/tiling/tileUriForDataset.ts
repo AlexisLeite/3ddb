@@ -1,19 +1,15 @@
 import type { ServerConfig } from "../config/ServerConfig.js";
 import type { Bounds } from "../domain/Bounds.js";
-import type { CityPart } from "../domain/CityPart.js";
 
 /**
- * Builds the relative b3dm content URI for a generated child tile, including
- * part identity, bounds and style version query parameters.
+ * Builds the relative b3dm content URI for a generated dataset child tile.
  */
-export function tileUriForPart(
-  part: CityPart,
+export function tileUriForDataset(
   config: ServerConfig,
   bounds: Bounds | null,
   queryId: string | null = null,
 ): string {
   const url = new URL("http://localhost/tile.b3dm");
-  url.searchParams.set("parts", part.id);
   url.searchParams.set("heightMode", config.nyc.heightMode);
   url.searchParams.set("style", config.tiles.version);
   if (bounds) {

@@ -1,15 +1,15 @@
 import type { ServerConfig } from "../config/ServerConfig.js";
-import type { CityPart } from "../domain/CityPart.js";
+import type { DatasetMetadata } from "../domain/DatasetMetadata.js";
 import type { SurfaceData } from "../domain/SurfaceData.js";
 import { b3dmFromMesh } from "./binary/b3dmFromMesh.js";
 import { emptyB3dm } from "./binary/emptyB3dm.js";
-import { localFrameForParts } from "./localFrameForParts.js";
+import { datasetVerticalOffsetMeters } from "./datasetVerticalOffsetMeters.js";
+import { localFrameForDataset } from "./localFrameForDataset.js";
 import { meshFromSurfaces } from "./meshFromSurfaces.js";
-import { partVerticalOffsetMeters } from "./partVerticalOffsetMeters.js";
+import { regionFromDataset } from "./regionFromDataset.js";
 import { regionFromBounds } from "./regionFromBounds.js";
-import { regionFromParts } from "./regionFromParts.js";
-import { tileBoundsForPart } from "./tileBoundsForPart.js";
-import { tileUriForPart } from "./tileUriForPart.js";
+import { tileBoundsForDataset } from "./tileBoundsForDataset.js";
+import { tileUriForDataset } from "./tileUriForDataset.js";
 
 /**
  * Builds 3D Tiles metadata and binary tile payloads from loaded surfaces while
@@ -19,13 +19,13 @@ export class DataTiler {
   constructor(private readonly config: ServerConfig) {}
 
   /**
-   * Builds the root 3D Tiles tileset document for the imported city parts,
+   * Builds the root 3D Tiles tileset document for the connected dataset,
    * including child tile regions, transforms and b3dm content URIs.
    */
-  buildTileset(parts: CityPart[], queryId: string | null = null): Record<string, unknown> {
-    const rootRegion = regionFromParts(parts, this.config);
+  buildTileset(dataset: DatasetMetadata, queryId: string | null = null): Record<string, unknown> {
+    const rootRegion = regionFromDataset(dataset, this.config);
     if (!rootRegion) {
-      throw new Error("No imported New York City parts have valid bounds");
+      throw new Error("The connected 3DCityDB dataset has no valid bounds");
     }
 
     return {
@@ -41,10 +41,9 @@ export class DataTiler {
         },
         geometricError: this.config.tiles.rootGeometricError,
         refine: "REPLACE",
-        children: parts.map((part) => this.buildPartTile(part, queryId)),
+        children: [this.buildDatasetTile(dataset, queryId)],
       },
       properties: {
-        partId: {},
         geometryId: {},
         featureId: {},
         objectId: {},
@@ -63,7 +62,7 @@ export class DataTiler {
   buildTile(surfaceData: SurfaceData): Buffer {
     if (surfaceData.surfaces.length === 0) return emptyB3dm();
 
-    const frame = localFrameForParts(surfaceData.parts, this.config);
+    const frame = localFrameForDataset(surfaceData.dataset, this.config);
     if (!frame) return emptyB3dm();
 
     const mesh = meshFromSurfaces(surfaceData.surfaces, frame, this.config);
@@ -78,20 +77,23 @@ export class DataTiler {
     return emptyB3dm();
   }
 
-  private buildPartTile(part: CityPart, queryId: string | null): Record<string, unknown> {
-    const verticalOffsetMeters = partVerticalOffsetMeters(part, this.config);
-    const frame = localFrameForParts([part], this.config, verticalOffsetMeters);
+  private buildDatasetTile(
+    dataset: DatasetMetadata,
+    queryId: string | null,
+  ): Record<string, unknown> {
+    const verticalOffsetMeters = datasetVerticalOffsetMeters(dataset, this.config);
+    const frame = localFrameForDataset(dataset, this.config, verticalOffsetMeters);
     if (!frame) {
-      throw new Error(`Part ${part.id} has no valid bounds`);
+      throw new Error("The connected 3DCityDB dataset has no valid bounds");
     }
 
     return {
       boundingVolume: {
         region: regionFromBounds(frame.bounds, this.config, verticalOffsetMeters),
       },
-      geometricError: this.config.tiles.partGeometricError,
+      geometricError: this.config.tiles.datasetGeometricError,
       refine: "REPLACE",
-      children: tileBoundsForPart(part, this.config).map((tile) => ({
+      children: tileBoundsForDataset(dataset, this.config).map((tile) => ({
         boundingVolume: {
           region: regionFromBounds(tile.bounds, this.config, verticalOffsetMeters),
         },
@@ -99,7 +101,7 @@ export class DataTiler {
         refine: "REPLACE",
         transform: frame.transform,
         content: {
-          uri: tileUriForPart(part, this.config, tile.bounds, queryId),
+          uri: tileUriForDataset(this.config, tile.bounds, queryId),
         },
       })),
     };

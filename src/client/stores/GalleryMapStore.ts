@@ -65,7 +65,7 @@ export class GalleryMapStore {
 
   /**
    * Waits for the embedded Cesium client, applies base map settings and loads
-   * the DA10 3D Tiles dataset before marking the map as ready.
+   * the connected 3D Tiles dataset before marking the map as ready.
    */
   async initialize(): Promise<void> {
     const frameWindow = await this.waitForClient();
@@ -165,8 +165,7 @@ export class GalleryMapStore {
   }
 
   private async replaceDataset(frameWindow: Window, queryId: string | null): Promise<void> {
-    const partId = import.meta.env.VITE_DEFAULT_SELECTED_PART_ID || "NYC_DA1";
-    const tileset = await replaceDatasetTileset(frameWindow, partId, queryId, this.tileset);
+    const tileset = await replaceDatasetTileset(frameWindow, queryId, this.tileset);
     runInAction(() => {
       this.tileset = tileset;
       this.activeQueryId = queryId;

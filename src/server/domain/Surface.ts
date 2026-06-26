@@ -3,7 +3,6 @@
  * and GeoJSON rings ready for mesh generation.
  */
 export interface Surface {
-  partId: string;
   geometryId: number;
   featureId: number;
   objectId: string;

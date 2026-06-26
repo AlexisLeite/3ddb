@@ -1,9 +1,7 @@
-import { join } from "node:path";
 import { envColorFactor } from "./envColorFactor.js";
 import { envInteger } from "./envInteger.js";
 import { envNumber } from "./envNumber.js";
 import { envNumberList } from "./envNumberList.js";
-import { envPath } from "./envPath.js";
 import { envString } from "./envString.js";
 import type { ServerConfig } from "./ServerConfig.js";
 import { shortHash } from "./shortHash.js";
@@ -14,25 +12,15 @@ import { shortHash } from "./shortHash.js";
  */
 export function loadServerConfig(rootDir: string): ServerConfig {
   const nyc = {
-    partCount: envInteger("NYC_PART_COUNT", 20),
-    defaultPartId: envString("NYC_DEFAULT_PART_ID", "NYC_DA10"),
     lod: envString("NYC_LOD", "2"),
     verticalScale: envNumber("NYC_VERTICAL_SCALE", 0.3048006096),
     heightMode: envString("CITYDB_HEIGHT_MODE", "relative"),
     verticalOffsetMeters: envNumber("CITYDB_VERTICAL_OFFSET_METERS", 0),
-    partsCachePath: envPath(
-      rootDir,
-      "NYC_PARTS_CACHE_PATH",
-      join("data", "nycity-parts-cache.json"),
-    ),
-    refreshPartsOnStart:
-      envString("NYC_PARTS_REFRESH_ON_START", "true").toLowerCase() === "true",
-    partsCacheMs: envInteger("NYC_PARTS_CACHE_MS", 60000),
   };
   const tiles = {
     gridDivisions: Math.max(1, envInteger("TILESET_GRID_DIVISIONS", 16)),
     rootGeometricError: envNumber("TILESET_ROOT_GEOMETRIC_ERROR", 500),
-    partGeometricError: envNumber("TILESET_PART_GEOMETRIC_ERROR", 250),
+    datasetGeometricError: envNumber("TILESET_DATASET_GEOMETRIC_ERROR", 250),
     responseCacheLimit: envInteger("TILE_RESPONSE_CACHE_LIMIT", 12),
     responseCacheMs: envInteger("TILE_RESPONSE_CACHE_MS", 120000),
     baseColorFactor: envNumberList("TILE_BASE_COLOR_FACTOR", [1, 1, 1, 1]),
@@ -86,8 +74,6 @@ export function loadServerConfig(rootDir: string): ServerConfig {
     nyc,
     query: {
       maxSurfacesPerResponse: envInteger("MAX_SURFACES_PER_RESPONSE", 8000000),
-      maxSurfacesPerPart: envInteger("MAX_SURFACES_PER_PART", 8000000),
-      minSurfacesPerPart: envInteger("MIN_SURFACES_PER_PART", 1500),
       minQueryRadiusMeters: envNumber("MIN_QUERY_RADIUS_METERS", 2000),
       maxQueryRadiusMeters: envNumber("MAX_QUERY_RADIUS_METERS", 800000),
     },

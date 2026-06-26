@@ -3,6 +3,7 @@ import type { DBManager } from "../db/DBManager.js";
 import type { SqlRenderFilter } from "./SqlRenderFilter.js";
 import { SqlQueryRegistry } from "./SqlQueryRegistry.js";
 import { SqlQueryValidator } from "./SqlQueryValidator.js";
+import { sqlQueryStatements } from "./sqlQueryStatements.js";
 
 type SqlMode = "where" | "select";
 
@@ -20,22 +21,13 @@ interface SqlQueryResponse {
   columns: string[];
   rows: Record<string, unknown>[];
   rowCount: number;
+  totalRowCount: number;
   truncated: boolean;
 }
 
-const wherePreviewColumns = [
-  "feature_id",
-  "geometry_id",
-  "objectid",
-  "lineage",
-  "classname",
-  "property_name",
-  "lod",
-  "height_m",
-  "area_m2",
-  "height_rank",
-  "area_rank",
-];
+interface SqlCountRow {
+  total_row_count: number | string;
+}
 
 function apiError(message: string, statusCode = 400): Error & { statusCode: number } {
   return Object.assign(new Error(message), { statusCode });
@@ -95,13 +87,26 @@ export class SqlQueryService {
   private async executeWhere(request: SqlQueryRequest): Promise<SqlQueryResponse> {
     const sql = this.validator.validateWhere(request.sql);
     const queryLimit = Math.max(request.limit, this.config.sql.maxRenderIds) + 1;
-    const result = await this.db.withReadOnlyTransaction(this.config.sql.timeoutMs, (client) =>
-      client.query<Record<string, unknown>>(this.wherePreviewSql(sql), [
-        [this.config.nyc.defaultPartId],
-        this.config.nyc.lod,
-        this.config.nyc.verticalScale,
-        queryLimit,
-      ]),
+    const { result, totalRowCount } = await this.db.withReadOnlyTransaction(
+      this.config.sql.timeoutMs,
+      async (client) => {
+        const previewResult = await client.query<Record<string, unknown>>(
+          sqlQueryStatements.wherePreviewSql(sql),
+          [
+            this.config.nyc.lod,
+            this.config.nyc.verticalScale,
+            queryLimit,
+          ],
+        );
+        const countResult = await client.query<SqlCountRow>(sqlQueryStatements.whereCountSql(sql), [
+          this.config.nyc.lod,
+          this.config.nyc.verticalScale,
+        ]);
+        return {
+          result: previewResult,
+          totalRowCount: this.rowCountFromResult(countResult.rows[0]),
+        };
+      },
     );
     const rows = result.rows.slice(0, request.limit);
     const featureIds = this.collectIds(result.rows.slice(0, this.config.sql.maxRenderIds), "feature_id");
@@ -113,18 +118,29 @@ export class SqlQueryService {
       queryId,
       mode: request.mode,
       tourPointId: request.tourPointId,
-      columns: wherePreviewColumns,
+      columns: sqlQueryStatements.wherePreviewColumns,
       rows,
       rowCount: rows.length,
-      truncated: result.rows.length > request.limit,
+      totalRowCount,
+      truncated: totalRowCount > rows.length,
     };
   }
 
   private async executeSelect(request: SqlQueryRequest): Promise<SqlQueryResponse> {
     const sql = this.validator.validateSelect(request.sql);
     const queryLimit = Math.max(request.limit, this.config.sql.maxRenderIds) + 1;
-    const result = await this.db.withReadOnlyTransaction(this.config.sql.timeoutMs, (client) =>
-      client.query<Record<string, unknown>>(this.selectPreviewSql(sql, queryLimit)),
+    const { result, totalRowCount } = await this.db.withReadOnlyTransaction(
+      this.config.sql.timeoutMs,
+      async (client) => {
+        const previewResult = await client.query<Record<string, unknown>>(
+          sqlQueryStatements.selectPreviewSql(sql, queryLimit),
+        );
+        const countResult = await client.query<SqlCountRow>(sqlQueryStatements.selectCountSql(sql));
+        return {
+          result: previewResult,
+          totalRowCount: this.rowCountFromResult(countResult.rows[0]),
+        };
+      },
     );
     const columns = result.fields.map((field) => field.name);
     const idColumn = this.renderColumn(columns);
@@ -142,7 +158,8 @@ export class SqlQueryService {
       columns,
       rows,
       rowCount: rows.length,
-      truncated: result.rows.length > request.limit,
+      totalRowCount,
+      truncated: totalRowCount > rows.length,
     };
   }
 
@@ -168,57 +185,10 @@ export class SqlQueryService {
     return [...ids];
   }
 
-  private selectPreviewSql(sql: string, limit: number): string {
-    return `select * from (${sql}) as user_query limit ${limit}`;
+  private rowCountFromResult(row: SqlCountRow | undefined): number {
+    const value = row?.total_row_count;
+    const count = typeof value === "number" ? value : Number(value || 0);
+    return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
   }
 
-  private wherePreviewSql(whereSql: string): string {
-    return `
-      with building_metric_base as (
-        select
-          coalesce(f.lineage, 'NYC_DA1') as lineage,
-          f.id as feature_id,
-          greatest(
-            0,
-            (coalesce(ST_ZMax(Box3D(f.envelope)), 0) - coalesce(ST_ZMin(Box3D(f.envelope)), 0)) * $3
-          )::float8 as height_m,
-          (ST_Area(ST_Envelope(f.envelope)) * $3 * $3)::float8 as area_m2
-        from citydb.feature f
-        where coalesce(f.lineage, 'NYC_DA1') = any($1::text[])
-          and f.envelope is not null
-      ),
-      bm as (
-        select
-          feature_id,
-          height_m,
-          area_m2,
-          dense_rank() over (partition by lineage order by height_m desc nulls last)::int as height_rank,
-          dense_rank() over (partition by lineage order by area_m2 desc nulls last)::int as area_rank
-        from building_metric_base
-      )
-      select distinct on (f.id)
-        f.id::text as feature_id,
-        gd.id::text as geometry_id,
-        f.objectid,
-        coalesce(f.lineage, 'NYC_DA1') as lineage,
-        oc.classname,
-        p.name as property_name,
-        p.val_lod as lod,
-        round(bm.height_m::numeric, 2)::float8 as height_m,
-        round(bm.area_m2::numeric, 2)::float8 as area_m2,
-        bm.height_rank,
-        bm.area_rank
-      from citydb.property p
-      join citydb.geometry_data gd on gd.id = p.val_geometry_id
-      join citydb.feature f on f.id = p.feature_id
-      join citydb.objectclass oc on oc.id = f.objectclass_id
-      left join bm on bm.feature_id = f.id
-      where coalesce(f.lineage, 'NYC_DA1') = any($1::text[])
-        and p.val_lod = $2
-        and gd.geometry is not null
-        and (${whereSql})
-      order by f.id, gd.id
-      limit $4;
-    `;
-  }
 }

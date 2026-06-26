@@ -182,7 +182,6 @@ function glbFromMesh(mesh: Mesh, config: ServerConfig): Buffer {
 
 function batchTableFromMesh(mesh: Mesh): Record<string, unknown[]> {
   const keys: (keyof MeshBatch)[] = [
-    "partId",
     "geometryId",
     "featureId",
     "objectId",

@@ -1,11 +1,9 @@
 import type { Bounds } from "./Bounds.js";
 
 /**
- * Describes a configured NYC delivery area, including import status, bounds and
- * lightweight statistics returned to the client.
+ * Describes the single connected 3DCityDB dataset used by the gallery app.
  */
-export interface CityPart {
-  id: string;
+export interface DatasetMetadata {
   label: string;
   detail: string;
   version: string;

@@ -16,20 +16,13 @@ export interface ServerConfig {
     options: string;
   };
   nyc: {
-    partCount: number;
-    defaultPartId: string;
     lod: string;
     verticalScale: number;
     heightMode: string;
     verticalOffsetMeters: number;
-    partsCachePath: string;
-    refreshPartsOnStart: boolean;
-    partsCacheMs: number;
   };
   query: {
     maxSurfacesPerResponse: number;
-    maxSurfacesPerPart: number;
-    minSurfacesPerPart: number;
     minQueryRadiusMeters: number;
     maxQueryRadiusMeters: number;
   };
@@ -44,7 +37,7 @@ export interface ServerConfig {
   tiles: {
     gridDivisions: number;
     rootGeometricError: number;
-    partGeometricError: number;
+    datasetGeometricError: number;
     responseCacheLimit: number;
     responseCacheMs: number;
     baseColorFactor: number[];

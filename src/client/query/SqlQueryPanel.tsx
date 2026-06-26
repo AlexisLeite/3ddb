@@ -13,6 +13,20 @@ function valueLabel(value: unknown): string {
   return String(value);
 }
 
+function formatRowCount(value: number): string {
+  return value.toLocaleString("es-UY");
+}
+
+function rowStatusLabel(rowCount: number, totalRowCount: number, truncated: boolean): string {
+  const visibleNoun = rowCount === 1 ? "fila visible" : "filas visibles";
+  if (totalRowCount >= rowCount) {
+    const totalNoun = totalRowCount === 1 ? "fila" : "filas";
+    const verb = rowCount === 1 ? "muestra" : "muestran";
+    return `Se ${verb} ${formatRowCount(rowCount)} de ${formatRowCount(totalRowCount)} ${totalNoun}.`;
+  }
+  return `${formatRowCount(rowCount)} ${visibleNoun}${truncated ? " de un resultado mayor" : ""}.`;
+}
+
 function SqlQueryPanelView({ point, queryStore }: SqlQueryPanelProps) {
   const pointId = point.id;
   const state = queryStore.stateFor(pointId);
@@ -46,14 +60,24 @@ function SqlQueryPanelView({ point, queryStore }: SqlQueryPanelProps) {
         </button>
       </div>
 
+      <div className="sql-query-actions">
+        <button
+          type="button"
+          onClick={() => queryStore.showResults(pointId)}
+          disabled={!state.queryId || state.columns.length === 0 || state.isLoading}
+        >
+          Mostrar datos de la consulta
+        </button>
+      </div>
+
       {state.error && <p className="sql-query-error">{state.error}</p>}
       {!state.error && state.queryId && (
         <p className="sql-query-status">
-          {state.rowCount} filas visibles{state.truncated ? " de un resultado mayor" : ""}.
+          {rowStatusLabel(state.rowCount, state.totalRowCount, state.truncated)}
         </p>
       )}
 
-      {state.columns.length > 0 && (
+      {state.isTableVisible && state.columns.length > 0 && (
         <div className="sql-query-table" role="region" aria-label="Resultado bounding box">
           <table>
             <thead>
